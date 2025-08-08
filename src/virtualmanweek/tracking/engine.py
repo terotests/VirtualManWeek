@@ -33,6 +33,8 @@ class Tracker:
         # Sleep detection tuning
         self.poll_gap_sleep_min = 30   # any gap >= this (seconds) considered a candidate for sleep
         self.poll_gap_log_min = 5      # log gaps >= this for diagnostics
+        # Recovery from attributed idle (non-split) state
+        self.active_recovery_start: Optional[int] = None  # when continuous activity began after idle attribution
 
     def start(self, project_id: Optional[int], mode_label: str, description: Optional[str] = None):
         now = int(time.time())
@@ -57,20 +59,37 @@ class Tracker:
         now = int(time.time())
         sess = self.active
         sess.last_activity_ts = now
+        idle_threshold = self.settings.idle_timeout_seconds
         # Auto resume logic: if currently in an auto Idle session and original mode stored
         if sess.mode_label.lower() == 'idle' and self.resume_mode_label:
             if self.resume_active_start_ts is None:
-                # mark beginning of continuous active window
                 self.resume_active_start_ts = now
             else:
                 if now - self.resume_active_start_ts >= self.restore_active_delay_seconds:
-                    # Restore original mode (new session)
                     orig = self.resume_mode_label
                     logger.info(f"Auto restoring mode '{orig}' after {self.restore_active_delay_seconds}s of activity")
                     self.switch(project_id=None, mode_label=orig, description='(auto resume)')
-                    # Clear resume state
                     self.resume_mode_label = None
                     self.resume_active_start_ts = None
+        # If we stayed in same mode (not switched to Idle placeholder) and just attributed a gap to idle_accum,
+        # allow returning to active (clearing idle_accum) after sustained activity window.
+        if sess.mode_label.lower() != 'idle' and sess.idle_accum > 0:
+            # We are currently marked idle due to accumulated idle_accum but user is active (< idle threshold)
+            if now - sess.last_activity_ts < idle_threshold:
+                if self.active_recovery_start is None:
+                    self.active_recovery_start = now
+                elif now - self.active_recovery_start >= self.restore_active_delay_seconds:
+                    logger.info(
+                        f"Clearing idle_accum ({sess.idle_accum}s) after {self.restore_active_delay_seconds}s sustained activity"
+                    )
+                    sess.idle_accum = 0
+                    self.active_recovery_start = None
+            else:
+                # User appears idle again, reset recovery window
+                self.active_recovery_start = None
+        else:
+            # Not in a recovery scenario
+            self.active_recovery_start = None
 
     def poll(self, idle_secs: Optional[int] = None):
         """Periodic maintenance.
