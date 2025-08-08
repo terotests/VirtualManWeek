@@ -1,0 +1,102 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment / secrets
+.env
+.env.*
+*.env
+.python-version
+
+# Distribution / packaging
+build/
+dist/
+wheelhouse/
+*.egg-info/
+.eggs/
+*.egg
+pip-wheel-metadata/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+.coverage*
+htmlcov/
+.tox/
+.nox/
+.pytest_cache/
+.coverage
+coverage.xml
+
+# Type checker / linters caches
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.pylint.d/
+.dmypy.json
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+profile_default/
+__pycache__/
+
+# Logs / temp / profiling
+*.log
+*.tmp
+*.temp
+.cache/
+pytestdebug.log
+
+# SQLite / local data (keep schema in code, not runtime data)
+*.sqlite3
+*.db
+*.db-journal
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+# (Optionally allow recommended extensions & tasks: keep only settings out if desired)
+.vscode/settings.json
+
+# Qt / PySide generated / build artifacts
+*.qmlc
+*.jsc
+
+# Reports / exports generated at runtime
+exports/
+*.html
+*.csv
+
+# Wheel build artifacts
+*.whl
+
+# Coverage reports
+*.lcov
+
+# Backup files
+*~
+*.bak
+
+# Ignore local scripts outputs
+scripts/*.log
+
+# Cache from packaging tools
+__pypackages__/
+
+# Misc
+*.swp
+*.swo
