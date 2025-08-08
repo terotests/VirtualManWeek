@@ -51,11 +51,27 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Clean -OneFile
 
 Result appears under `dist/`.
 
+## Packaging (Installer / Portable ZIP)
+
+Create executable + ZIP (and installer if Inno Setup present):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package.ps1 -Clean -OneFile
+```
+
+Outputs:
+- `installer/VirtualManWeek-<version>.zip` portable package
+- `installer/VirtualManWeek.iss` Inno Setup script (auto-generated first run)
+- `installer/VirtualManWeek-Setup-<version>.exe` (if Inno Setup's `ISCC.exe` found on PATH)
+
+Install Inno Setup: https://jrsoftware.org/isinfo.php
+
 ## Scripts Overview
 
 - `scripts/setup.ps1` : create / update virtual environment (add -Dev for dev tools)
 - `scripts/test.ps1` : run tests (add -Coverage for coverage)
 - `scripts/build.ps1` : build executable (add -OneFile for single EXE, -Clean to remove old artifacts)
+- `scripts/package.ps1` : build exe then produce portable ZIP and optional installer
 
 ## Project Status
 
