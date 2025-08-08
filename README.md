@@ -1,83 +1,82 @@
-# virtualmanweek
+# VirtualManWeek
 
-Track time in Windows from the system tray icon
+Lightweight Windows system tray time tracker with mode switching, idle/sleep handling, statistics and export.
 
 ## Requirements
+- Windows 11 (Win10 likely works)
+- Python 3.11+ (for development / building)
+- PowerShell 5.1+ / 7+
+- (Optional) Inno Setup (ISCC.exe on PATH) to build installer
 
-- Windows 11
-- Python 3.11+ available as `py` launcher (or adjust scripts)
-- PowerShell 5.1 or later
-
-## Quick Start
-
-1. Clone repo
-2. Open PowerShell in repo root
-3. Setup environment (creates .venv and installs deps)
+## Quick Start (Source)
+1. Clone repository
+2. In repo root run:
    ```powershell
    powershell -ExecutionPolicy Bypass -File scripts/setup.ps1 -Dev
    ```
-4. Run demo harness (currently logs one sample session)
+3. Launch tray UI:
    ```powershell
-   .\.venv\Scripts\python -m virtualmanweek.main
+   .\.venv\Scripts\python -m virtualmanweek.main --tray
    ```
+4. Tray icon appears (Idle = yellow, Active = green, Stopped = red). Left‑click to open menu.
 
-## Testing
+## Key Features
+- System tray UI (start on Idle, switch modes quickly)
+- Custom & quick modes (with optional description per switch)
+- Automatic idle detection (yellow) + recovery; sleep gap handling
+- Mode distribution chart (QtCharts fallback to HTML/Chart.js) + export
+- Detailed HTML report (daily timeline + per‑mode entries)
+- CSV export of recent entries
+- Project & mode management dialogs
+- Database export / import and safe clear (admin menu)
+- Portable ZIP or Windows installer packaging (PyInstaller + optional Inno Setup)
 
-Run all tests (pytest auto-installed if missing):
+## Common Actions (Tray Menu)
+- Switch Mode / Custom… : change current activity
+- Set Idle : manually mark idle
+- Statistics → Mode Distribution : view chart / export HTML
+- Export Week (CSV) : raw entries sample export
+- Admin → Export / Import Database, Clear Logged Entries
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/test.ps1
-```
-
-With coverage report:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/test.ps1 -Coverage
-```
-
-## Building Executable
-
-Clean build (folder output):
-
+## Build Executable
+Clean folder build:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Clean
 ```
-
-One-file executable (may increase startup time):
-
+One‑file exe (slower start):
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Clean -OneFile
 ```
+Run built app:
+```powershell
+./dist/VirtualManWeek.exe --tray
+```
 
-Result appears under `dist/`.
-
-## Packaging (Installer / Portable ZIP)
-
-Create executable + ZIP (and installer if Inno Setup present):
-
+## Package (ZIP / Installer)
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/package.ps1 -Clean -OneFile
 ```
+Outputs under `installer/`:
+- `VirtualManWeek-<version>.zip` (portable)
+- `VirtualManWeek-Setup-<version>.exe` (if ISCC.exe available)
+- `VirtualManWeek.iss` (generated script; customize if desired)
 
-Outputs:
+## Testing
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/test.ps1
+powershell -ExecutionPolicy Bypass -File scripts/test.ps1 -Coverage   # add coverage
+```
 
-- `installer/VirtualManWeek-<version>.zip` portable package
-- `installer/VirtualManWeek.iss` Inno Setup script (auto-generated first run)
-- `installer/VirtualManWeek-Setup-<version>.exe` (if Inno Setup's `ISCC.exe` found on PATH)
+## Scripts Summary
+| Script | Purpose |
+|--------|---------|
+| setup.ps1 | Create/update virtual env & install deps (-Dev for dev tools) |
+| test.ps1 | Run tests (optional -Coverage) |
+| build.ps1 | PyInstaller build (-OneFile / -Clean) |
+| package.ps1 | Build + ZIP + optional installer |
 
-Install Inno Setup: https://jrsoftware.org/isinfo.php
-
-## Scripts Overview
-
-- `scripts/setup.ps1` : create / update virtual environment (add -Dev for dev tools)
-- `scripts/test.ps1` : run tests (add -Coverage for coverage)
-- `scripts/build.ps1` : build executable (add -OneFile for single EXE, -Clean to remove old artifacts)
-- `scripts/package.ps1` : build exe then produce portable ZIP and optional installer
-
-## Project Status
-
-Early bootstrap: tracking engine skeleton, DB schema, logging. UI tray and full features not implemented yet.
+## Versioning
+Defined in `virtualmanweek/__init__.py` (`__version__`). Packaging script reads this value.
 
 ## License
-
-MIT (see LICENSE file)
+MIT (see `LICENSE`).

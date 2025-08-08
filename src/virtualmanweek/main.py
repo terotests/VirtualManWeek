@@ -2,10 +2,10 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from .config import Settings
-from .tracking.engine import Tracker
-from .db import models
-from .ui.tray import run_tray
+from virtualmanweek.config import Settings
+from virtualmanweek.tracking.engine import Tracker
+from virtualmanweek.db import models
+from virtualmanweek.ui.tray import run_tray
 
 
 def cli():

@@ -24,25 +24,32 @@ Set-Location $repoRoot
 # Activate venv
 $venvPath = Join-Path $repoRoot '.venv'
 if (-not (Test-Path $venvPath)) { Write-Error 'Virtual environment not found. Run scripts/setup.ps1 first.' }
-. (Join-Path $venvPath 'Scripts' 'Activate.ps1')
+# Activate venv only if not already active
+if (-not $env:VIRTUAL_ENV) {
+  $activateScript = Join-Path (Join-Path $venvPath 'Scripts') 'Activate.ps1'
+  if (-not (Test-Path $activateScript)) { Write-Error "Activation script not found at $activateScript" }
+  . $activateScript
+} else {
+  Write-Host "Using already activated venv: $env:VIRTUAL_ENV" -ForegroundColor DarkGray
+}
 
 # Step 1: Build executable
 $buildArgs = @()
 if ($OneFile) { $buildArgs += '-OneFile' }
 if ($Clean) { $buildArgs += '-Clean' }
-& powershell -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'scripts' 'build.ps1') @buildArgs
+$buildScript = Join-Path (Join-Path $repoRoot 'scripts') 'build.ps1'
+& powershell -ExecutionPolicy Bypass -File $buildScript @buildArgs
 
-# Determine version
-$version = (& python - <<'PY'
-import importlib, json
-try:
-    m = importlib.import_module('virtualmanweek')
-    print(getattr(m, '__version__', '0.0.0'))
-except Exception:
-    print('0.0.0')
-PY
-).Trim()
-if (-not $version) { $version = '0.0.0' }
+# Determine version (parse from src/virtualmanweek/__init__.py to avoid python -c quoting issues)
+$initPath = Join-Path (Join-Path $repoRoot 'src') 'virtualmanweek/__init__.py'
+$version = '0.0.0'
+if (Test-Path $initPath) {
+  $verLine = Get-Content $initPath | Where-Object { $_ -match '__version__' } | Select-Object -First 1
+  if ($verLine -and $verLine -match '"([0-9]+\.[0-9]+\.[0-9]+[^"]*)"') {
+    $version = $matches[1]
+  }
+}
+Write-Host "Detected version: $version" -ForegroundColor DarkGray
 
 Write-Host "Packaging version $version" -ForegroundColor Cyan
 
@@ -58,11 +65,24 @@ if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
 New-Item -ItemType Directory -Force -Path $staging | Out-Null
 
 # Copy artifacts
-Copy-Item $exePath (Join-Path $staging 'VirtualManWeek.exe')
-foreach ($f in @('README.md','LICENSE')) { if (Test-Path $f) { Copy-Item $f $staging } }
+# If we have an onedir build (exe inside dist/VirtualManWeek/ plus python DLLs), copy whole directory so dependencies are present.
+$oneDirFolder = Join-Path $distDir 'VirtualManWeek'
+$usingOneDir = $false
+if (-not $OneFile -and (Test-Path (Join-Path $oneDirFolder 'VirtualManWeek.exe'))) {
+  $usingOneDir = $true
+}
+if ($usingOneDir) {
+  Write-Host 'Detected onedir build; copying entire dist/VirtualManWeek contents for portable package.' -ForegroundColor Yellow
+  Copy-Item (Join-Path $oneDirFolder '*') $staging -Recurse -Force
+}
+else {
+  # Onefile build: only the single exe is needed
+  Copy-Item $exePath (Join-Path $staging 'VirtualManWeek.exe') -Force
+}
+foreach ($f in @('README.md','LICENSE')) { if (Test-Path $f) { Copy-Item $f $staging -Force } }
 
 # Optional assets (icon)
-if (Test-Path 'assets/icon.ico') { Copy-Item 'assets/icon.ico' (Join-Path $staging 'icon.ico') }
+if (Test-Path 'assets/icon.ico') { Copy-Item 'assets/icon.ico' (Join-Path $staging 'icon.ico') -Force }
 
 # Create ZIP fallback
 Add-Type -AssemblyName System.IO.Compression.FileSystem

@@ -100,3 +100,11 @@ __pypackages__/
 # Misc
 *.swp
 *.swo
+
+# Installer packaging artifacts
+installer/staging/
+installer/*.zip
+installer/*-Setup-*.exe
+installer/Output/
+# Ignore entire installer folder
+installer/
