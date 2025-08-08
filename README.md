@@ -60,6 +60,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package.ps1 -Clean -OneFile
 ```
 
 Outputs:
+
 - `installer/VirtualManWeek-<version>.zip` portable package
 - `installer/VirtualManWeek.iss` Inno Setup script (auto-generated first run)
 - `installer/VirtualManWeek-Setup-<version>.exe` (if Inno Setup's `ISCC.exe` found on PATH)

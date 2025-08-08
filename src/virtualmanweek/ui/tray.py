@@ -227,11 +227,15 @@ class TrayApp:
         return f"{h}h{m:02d}m{s:02d}s"
 
     def _poll_loop(self):
+        # Poll first (with external idle seconds) so sleep gaps & idle are accounted before activity ping
         idle_secs = get_idle_seconds()
+        try:
+            self.tracker.poll(idle_secs=idle_secs)
+        except TypeError:
+            # Backward compatibility if older tracker without param
+            self.tracker.poll()
         if idle_secs < self.settings.idle_timeout_seconds:
-            # user active
             self.tracker.activity_ping()
-        self.tracker.poll()
         self._update_current_label()
 
     def _update_current_label(self):
@@ -408,7 +412,7 @@ class TrayApp:
                 # Mode detail (existing logic, now inside same try)
                 for mode in labels:
                     cur.execute(
-                        "SELECT date, start_ts, end_ts, active_seconds, description FROM time_entries WHERE mode_label=? ORDER BY active_seconds DESC, start_ts DESC LIMIT 200",
+                        "SELECT date, start_ts, end_ts, active_seconds, idle_seconds, description FROM time_entries WHERE mode_label=? ORDER BY active_seconds DESC, start_ts DESC LIMIT 200",
                         (mode,),
                     )
                     rows = cur.fetchall()
@@ -430,19 +434,22 @@ class TrayApp:
                         desc = r["description"] or ""
                         desc = _html.escape(desc).replace('\n', '<br/>')
                         dt_str = _fmt_dt(r['start_ts'])
+                        active_fmt = _fmt(r['active_seconds'])
+                        idle_fmt = _fmt(r['idle_seconds']) if r['idle_seconds'] else ''
+                        total_fmt = _fmt(r['active_seconds'] + (r['idle_seconds'] or 0))
                         row_html_parts.append(
-                            f"<tr><td>{dt_str}</td><td class='num'>{_fmt(r['active_seconds'])}</td><td class='desc'>{desc}</td></tr>"
+                            f"<tr><td>{dt_str}</td><td class='num'>{active_fmt}</td><td class='num'>{idle_fmt}</td><td class='num'>{total_fmt}</td><td class='desc'>{desc}</td></tr>"
                         )
                     table_html = (
                         f"<h4>{_html.escape(mode)}</h4>"
-                        "<table class='mode'><thead><tr><th>Date/Start Time</th><th>Active</th><th>Description</th></tr></thead><tbody>"
+                        "<table class='mode'><thead><tr><th>Date/Start Time</th><th>Active</th><th>Idle</th><th>Total</th><th>Description</th></tr></thead><tbody>"
                         + "".join(row_html_parts)
                         + "</tbody></table>"
                     )
                     per_mode_tables.append(table_html)
                 # Daily summary (chronological)
                 cur.execute(
-                    "SELECT date, start_ts, active_seconds, mode_label, description FROM time_entries ORDER BY date ASC, start_ts ASC LIMIT 2000"
+                    "SELECT date, start_ts, active_seconds, idle_seconds, mode_label, description FROM time_entries ORDER BY date ASC, start_ts ASC LIMIT 2000"
                 )
                 daily_rows = cur.fetchall()
                 if daily_rows:
@@ -468,11 +475,14 @@ class TrayApp:
                             t_str = datetime.fromtimestamp(r['start_ts']).strftime('%H:%M:%S') if r['start_ts'] else ''
                             desc = (r['description'] or '').replace('\n', ' ')
                             desc = _html.escape(desc)
+                            active_fmt = _fmt_short(r['active_seconds'])
+                            idle_fmt = _fmt_short(r['idle_seconds']) if r['idle_seconds'] else ''
+                            total_fmt = _fmt_short(r['active_seconds'] + (r['idle_seconds'] or 0))
                             row_parts.append(
-                                f"<tr><td>{t_str}</td><td>{_html.escape(r['mode_label'])}</td><td class='num'>{_fmt_short(r['active_seconds'])}</td><td class='desc'>{desc}</td></tr>"
+                                f"<tr><td>{t_str}</td><td>{_html.escape(r['mode_label'])}</td><td class='num'>{active_fmt}</td><td class='num'>{idle_fmt}</td><td class='num'>{total_fmt}</td><td class='desc'>{desc}</td></tr>"
                             )
                         daily_tables.append(
-                            f"<h4>{weekday} {d}</h4><table class='mode'><thead><tr><th>Start</th><th>Mode</th><th>Active</th><th>Description</th></tr></thead><tbody>{''.join(row_parts)}</tbody></table>"
+                            f"<h4>{weekday} {d}</h4><table class='mode'><thead><tr><th>Start</th><th>Mode</th><th>Active</th><th>Idle</th><th>Total</th><th>Description</th></tr></thead><tbody>{''.join(row_parts)}</tbody></table>"
                         )
         except Exception as e:  # pragma: no cover
             per_mode_tables.append(f"<p><em>Detail section failed: {e}</em></p>")
