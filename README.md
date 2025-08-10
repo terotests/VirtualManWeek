@@ -1,6 +1,6 @@
 # VirtualManWeek
 
-Once in my early life there was a great Windows program called "Virtual Man Month", which was developed by a very productive programmer in our company using purely Win32 APIs at the time. It was working from the Windows tray Icon and eveyone in the company was logging their hours to it. It was a great tool, but also a bit tedious because it recorded just the time you were at the machine. Fortunately, you could also add time manually there, which was pretty important.
+Once in my early life there was a great Windows program called "Virtual Man Month", which was developed by a very productive programmer in our company using purely Win32 APIs at the time. It was working from the Windows tray Icon and eveyone in the company was logging their hours to it. It was a great tool which was used years in our small startup.
 
 This week I noticed I needed something similar, to avoid time consuming context switching and time logging using tools like Excel. This tool is not yet as production grade
 
