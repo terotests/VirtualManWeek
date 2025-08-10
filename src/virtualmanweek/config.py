@@ -22,6 +22,8 @@ DEFAULT_SETTINGS = {
     "tag_cloud_limit": 10,
     "discard_sub_10s_entries": True,
     "language": "en",
+    # Remember currently selected database path (absolute). If null, default appdata path is used.
+    "database_path": None,
 }
 
 
@@ -31,6 +33,7 @@ class Settings:
     tag_cloud_limit: int = DEFAULT_SETTINGS["tag_cloud_limit"]
     discard_sub_10s_entries: bool = DEFAULT_SETTINGS["discard_sub_10s_entries"]
     language: str = DEFAULT_SETTINGS["language"]
+    database_path: str | None = DEFAULT_SETTINGS["database_path"]
 
     @classmethod
     def load(cls) -> "Settings":

@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import Optional
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox, QStyle, QInputDialog, QFileDialog
-from PySide6.QtGui import QIcon, QAction, QActionGroup, QCursor, QPixmap, QPainter, QColor, QPen, QFont
+from PySide6.QtGui import QIcon, QAction, QCursor, QPixmap, QPainter, QColor, QPen, QFont
 from PySide6.QtCore import QTimer, QRect, Qt
 import time  # ensure time available for formatting
 import webbrowser  # new for HTML fallback
@@ -42,15 +42,9 @@ except Exception:  # pragma: no cover
 class TrayApp:
     def __init__(self):
         self.settings = Settings.load()
-        # Create QApplication early to allow dialogs during bootstrap
+        self.tracker = Tracker(self.settings)
         self.app = QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(False)  # keep running with only tray
-        # Ensure a database is selected/created before tracker starts
-        self._bootstrap_database_selection()
-        self.tracker = Tracker(self.settings)
-        # Track current project selection for quick switching
-        self.current_project_id: Optional[int] = None
-        self._project_label_by_id: dict[int, str] = {}
         self._active_icon = None
         self._idle_icon = None
         self._stopped_icon = None  # new stopped icon
@@ -59,59 +53,6 @@ class TrayApp:
         # Start with default project none and Idle mode
         self.tracker.start(project_id=None, mode_label="Idle")
         self._apply_icon(idle=True)
-
-    def _bootstrap_database_selection(self) -> None:
-        """On first run or missing DB, ask user to create/select DB. Apply selection and persist."""
-        # If settings has a db path and it exists, apply override and return
-        dbp = self.settings.database_path
-        if dbp:
-            p = Path(dbp)
-            if p.exists():
-                models.set_db_path(p)
-                return
-        # Ask user: Create or Select, else exit
-        msg = QMessageBox()
-        msg.setWindowTitle("Select Database")
-        msg.setText("Create a new database or select an existing one to continue.")
-        create_btn = msg.addButton("Create New", QMessageBox.AcceptRole)
-        select_btn = msg.addButton("Select Existing", QMessageBox.ActionRole)
-        cancel_btn = msg.addButton("Exit", QMessageBox.RejectRole)
-        msg.setIcon(QMessageBox.Question)
-        msg.exec()
-        clicked = msg.clickedButton()
-        if clicked == cancel_btn:
-            # Exit application early
-            self.app.quit()
-            sys.exit(0)
-        if clicked == create_btn:
-            # Suggest appdata folder + default name
-            suggested = str(appdata_root() / "VirtualManWeek.sqlite3")
-            fname, _ = QFileDialog.getSaveFileName(
-                None,
-                "Create New Database",
-                suggested,
-                "SQLite DB (*.sqlite3 *.db *.sqlite);;All Files (*.*)",
-            )
-            if not fname:
-                self.app.quit()
-                sys.exit(0)
-            path = Path(fname)
-            self._apply_database(path, notify=False)
-            return
-        if clicked == select_btn:
-            start_dir = str(appdata_root())
-            fname, _ = QFileDialog.getOpenFileName(
-                None,
-                "Select Existing Database",
-                start_dir,
-                "SQLite DB (*.sqlite3 *.db *.sqlite);;All Files (*.*)",
-            )
-            if not fname:
-                self.app.quit()
-                sys.exit(0)
-            path = Path(fname)
-            self._apply_database(path, notify=False)
-            return
 
     def _gen_clock_icon(self, bg: QColor, hand: QColor, text_color: QColor, outline: QColor = QColor("#222")) -> QIcon:
         """Generate a classic analog clock style icon with tiny VM monogram."""
@@ -179,10 +120,10 @@ class TrayApp:
         idle_act.triggered.connect(lambda: self.switch_mode("Idle"))
         self.menu.addAction(idle_act)
 
-        # Projects submenu: quick select + manage
-        self.projects_menu = self.menu.addMenu("Projects")
-        self.projects_menu.aboutToShow.connect(self._rebuild_projects_menu)
-        self._rebuild_projects_menu()
+        # Insert project management before export
+        proj_act = QAction("Projects", self.menu)
+        proj_act.triggered.connect(self.open_projects)
+        self.menu.addAction(proj_act)
         self.menu.addSeparator()
 
         export_act = QAction("Export Week (CSV)", self.menu)
@@ -197,15 +138,6 @@ class TrayApp:
 
         # Admin menu
         admin_menu = self.menu.addMenu("Admin")
-        # New: database management first
-        create_db_act = QAction("Create Database...", admin_menu)
-        create_db_act.triggered.connect(self.create_database)
-        admin_menu.addAction(create_db_act)
-        select_db_act = QAction("Select Database...", admin_menu)
-        select_db_act.triggered.connect(self.select_database)
-        admin_menu.addAction(select_db_act)
-        admin_menu.addSeparator()
-
         reset_act = QAction("Clear Logged Entries", admin_menu)
         reset_act.triggered.connect(self.reset_database)
         admin_menu.addAction(reset_act)
@@ -279,59 +211,6 @@ class TrayApp:
         refresh_act.triggered.connect(self._rebuild_modes_manage_menu)
         self.modes_manage_menu.addAction(refresh_act)
 
-    def _rebuild_projects_menu(self):
-        self.projects_menu.clear()
-        # Build cache from DB
-        try:
-            rows = models.list_active_projects()
-        except Exception:
-            rows = []
-        self._project_label_by_id = {}
-        for r in rows:
-            pid = r.get('id')
-            code = (r.get('code') or '').strip()
-            name = (r.get('name') or '').strip()
-            label = code if code else name if name else str(pid)
-            if code and name:
-                label = f"{code} - {name}"
-            if isinstance(pid, int):
-                self._project_label_by_id[pid] = label
-        # Action group for radio behavior
-        grp = QActionGroup(self.projects_menu)
-        grp.setExclusive(True)
-        # None option
-        none_act = QAction("(No Project)", self.projects_menu)
-        none_act.setCheckable(True)
-        none_act.setChecked(self.current_project_id is None)
-        none_act.triggered.connect(self.select_no_project)
-        grp.addAction(none_act)
-        self.projects_menu.addAction(none_act)
-        # Project items
-        if rows:
-            for r in rows:
-                pid = r['id']
-                label = self._project_label_by_id.get(pid, str(pid))
-                act = QAction(label, self.projects_menu)
-                act.setCheckable(True)
-                act.setChecked(self.current_project_id == pid)
-                act.triggered.connect(lambda checked=False, _pid=pid: self.select_project(_pid))
-                grp.addAction(act)
-                self.projects_menu.addAction(act)
-        else:
-            dummy = QAction("(No projects yet)", self.projects_menu)
-            dummy.setEnabled(False)
-            self.projects_menu.addAction(dummy)
-        # Footer actions
-        self.projects_menu.addSeparator()
-        manage = QAction("Manage Projects...", self.projects_menu)
-        manage.triggered.connect(self.open_projects)
-        self.projects_menu.addAction(manage)
-
-    def _project_display(self, pid: Optional[int]) -> str:
-        if pid is None:
-            return "None"
-        return self._project_label_by_id.get(pid, str(pid))
-
     def _setup_poll_timer(self):
         self.timer = QTimer()
         self.timer.setInterval(1000)  # 1s for live elapsed display
@@ -363,7 +242,7 @@ class TrayApp:
         if self.tracker.active:
             sess = self.tracker.active
             idle_flag = " (idle)" if sess.idle_accum > 0 or sess.mode_label.lower() == "idle" else ""
-            proj = self._project_display(sess.project_id)
+            proj = "None" if sess.project_id is None else str(sess.project_id)
             elapsed = int(time.time()) - sess.start_ts
             elapsed_str = self._format_elapsed(elapsed)
             self.action_current.setText(f"Current: {sess.mode_label}{idle_flag} / P:{proj} / {elapsed_str}")
@@ -388,90 +267,75 @@ class TrayApp:
         else:
             self.tray.setIcon(self._active_icon)
 
-    # Helper: save file dialog
-    def _select_save_path(self, title: str, default_filename: str, filter_spec: str) -> Optional[Path]:
-        default_dir = str(appdata_root())
-        suggested = str(Path(default_dir) / default_filename)
-        fname, _ = QFileDialog.getSaveFileName(None, title, suggested, filter_spec)
-        if not fname:
-            return None
-        return Path(fname)
-
-    # Helper: open file dialog
-    def _select_open_path(self, title: str, filter_spec: str) -> Optional[Path]:
-        start_dir = str(appdata_root())
-        fname, _ = QFileDialog.getOpenFileName(None, title, start_dir, filter_spec)
-        if not fname:
-            return None
-        return Path(fname)
-
-    # Helper: switch DB and persist setting
-    def _apply_database(self, path: Path, notify: bool = True) -> None:
+    def stop_tracking(self):
+        """Force stop current tracking session without exiting app."""
         try:
-            if hasattr(self, 'tracker') and self.tracker and self.tracker.active:
-                self.tracker.flush_all()
-                self.tracker.active = None
-            path.parent.mkdir(parents=True, exist_ok=True)
-            models.set_db_path(path)
-            models.initialize()
-            self.settings.database_path = str(path)
-            self.settings.save()
-            if hasattr(self, 'menu') and self.menu:
-                self._rebuild_switch_menu()
-                self._rebuild_modes_manage_menu()
-                if hasattr(self, 'projects_menu'):
-                    self._rebuild_projects_menu()
-                self._update_current_label()
-            if notify:
-                self._notify(f"Using database: {path}")
+            self.tracker.stop()
+        except Exception:
+            pass
+        self._update_current_label()
+
+    def switch_mode(self, mode_label: str):
+        # Ask optional description for each switch (quick dismiss allowed)
+        desc, ok = QInputDialog.getMultiLineText(None, "Description", f"Details for '{mode_label}' (optional):", "")
+        if not ok:
+            desc = None
+        self.tracker.switch(project_id=None, mode_label=mode_label, description=desc)
+        self._update_current_label()
+
+    def open_projects(self):
+        dlg = ProjectDialog()
+        dlg.exec()
+
+    def _delete_mode(self, mode_id: int):
+        try:
+            models.delete_mode(mode_id)
         except Exception as e:
-            self._notify(f"Database switch failed: {e}")
-
-    # New: Admin actions to create/select a database
-    def create_database(self):
-        """Create a new SQLite database file and switch to it."""
-        suggested = str(appdata_root() / "VirtualManWeek.sqlite3")
-        fname, _ = QFileDialog.getSaveFileName(
-            None,
-            "Create New Database",
-            suggested,
-            "SQLite DB (*.sqlite3 *.db *.sqlite);;All Files (*.*)",
-        )
-        if not fname:
+            self._notify(f"Delete failed: {e}")
             return
-        self.current_project_id = None
-        self._apply_database(Path(fname))
+        self._notify("Mode removed")
+        self._rebuild_switch_menu()
+        self._rebuild_modes_manage_menu()
 
-    def select_database(self):
-        """Select an existing SQLite database file and switch to it."""
-        start_dir = str(appdata_root())
-        fname, _ = QFileDialog.getOpenFileName(
-            None,
-            "Select Existing Database",
-            start_dir,
-            "SQLite DB (*.sqlite3 *.db *.sqlite);;All Files (*.*)",
-        )
-        if not fname:
+    def custom_switch_dialog(self):
+        # Revised: ask for new mode label first, then optional description. No project selection.
+        mode, okm = QInputDialog.getText(None, "New Mode", "Mode label:")
+        if not okm or not mode.strip():
             return
-        self.current_project_id = None
-        self._apply_database(Path(fname))
+        desc, okd = QInputDialog.getMultiLineText(None, "Description", f"Details for '{mode.strip()}' (optional):", "")
+        if not okd:
+            desc = None
+        self.tracker.switch(project_id=None, mode_label=mode.strip(), description=desc)
+        try:
+            from ..db import models as _models
+            _models.upsert_mode(mode.strip())
+        except Exception:
+            pass
+        # Rebuild menus so new mode appears
+        self._rebuild_switch_menu()
+        self._rebuild_modes_manage_menu()
+        self._update_current_label()
 
-    # Charts: show mode distribution
     def show_mode_distribution(self):
         data = models.mode_distribution()
         if not data:
             self._notify("No data yet")
             return
+        # Decide unit scaling
         max_val = max(int(r['total_active']) for r in data)
-        if max_val >= 3600:
+        if max_val >= 3600:  # 1h+
             divisor = 3600.0
             unit = "Hours"
-        elif max_val >= 600:
+            fmt = lambda v: f"{v:.2f}"  # keep 2 decimals for hours
+        elif max_val >= 600:  # 10m+
             divisor = 60.0
             unit = "Minutes"
+            fmt = lambda v: f"{v:.1f}"  # 1 decimal for minutes
         else:
             divisor = 1.0
             unit = "Seconds"
+            fmt = lambda v: f"{int(v)}"
+        # Try QtCharts first
         try:
             from PySide6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QHBoxLayout
             from PySide6.QtCharts import QtCharts
@@ -502,7 +366,7 @@ class TrayApp:
             view = QtCharts.QChartView(chart)
             view.setRenderHint(QPainter.Antialiasing)
             vlayout.addWidget(view)
-            # export button
+            # Export buttons row
             hl = QHBoxLayout()
             export_btn = QPushButton("Export HTML…")
             def do_export():
@@ -521,8 +385,9 @@ class TrayApp:
             dlg.exec()
             return
         except Exception:
-            # fall back to direct HTML
+            # Fallback to pure HTML export
             pass
+        # Direct HTML generation fallback
         path = self._select_save_path("Save Chart HTML", "mode_distribution.html", "HTML Files (*.html);;All Files (*.*)")
         if not path:
             return
@@ -533,18 +398,18 @@ class TrayApp:
         except Exception as e:
             self._notify(f"Chart export failed: {e}")
 
-    # Helper: write chart HTML with details
     def _write_chart_html(self, html_path: Path, data, divisor: float, unit: str, max_val: int):
         labels = [r['mode'] for r in data]
         raw_values = [int(r['total_active']) for r in data]
         values = [round(v / divisor, 2 if unit == 'Hours' else 1 if unit == 'Minutes' else 0) for v in raw_values]
+        # Collect per-mode detailed entries (longest first)
         per_mode_tables = []
-        daily_tables = []
+        daily_tables = []  # new daily summary tables
         try:
             import html as _html
             with models.connect() as conn:
                 cur = conn.cursor()
-                # Per-mode details
+                # Mode detail (existing logic, now inside same try)
                 for mode in labels:
                     cur.execute(
                         "SELECT date, start_ts, end_ts, active_seconds, idle_seconds, description FROM time_entries WHERE mode_label=? ORDER BY active_seconds DESC, start_ts DESC LIMIT 200",
@@ -582,12 +447,13 @@ class TrayApp:
                         + "</tbody></table>"
                     )
                     per_mode_tables.append(table_html)
-                # Daily timeline
+                # Daily summary (chronological)
                 cur.execute(
                     "SELECT date, start_ts, active_seconds, idle_seconds, mode_label, description FROM time_entries ORDER BY date ASC, start_ts ASC LIMIT 2000"
                 )
                 daily_rows = cur.fetchall()
                 if daily_rows:
+                    # group by date
                     from collections import defaultdict
                     grouped = defaultdict(list)
                     for r in daily_rows:
@@ -661,8 +527,8 @@ new Chart(document.getElementById('c').getContext('2d'), {{
 </body></html>"""
         html_path.write_text(html, encoding='utf-8')
 
-    # Export: CSV of recent entries
     def export_week_csv(self):
+        # PoC: export current ISO week aggregated raw entries including description
         try:
             with models.connect() as conn:
                 cur = conn.cursor()
@@ -690,80 +556,37 @@ new Chart(document.getElementById('c').getContext('2d'), {{
         except Exception as e:
             self._notify(f"Export failed: {e}")
 
-    # Restored handlers and admin actions
-    def stop_tracking(self):
-        try:
-            self.tracker.stop()
-        except Exception:
-            pass
-        self._update_current_label()
-
-    def switch_mode(self, mode_label: str):
-        desc, ok = QInputDialog.getMultiLineText(None, "Description", f"Details for '{mode_label}' (optional):", "")
-        if not ok:
-            desc = None
-        proj = getattr(self, 'current_project_id', None)
-        if self.tracker.active is None:
-            self.tracker.start(project_id=proj, mode_label=mode_label, description=desc)
-        else:
-            self.tracker.switch(project_id=proj, mode_label=mode_label, description=desc)
-        self._update_current_label()
-
-    def _delete_mode(self, mode_id: int):
-        try:
-            models.delete_mode(mode_id)
-        except Exception as e:
-            self._notify(f"Delete failed: {e}")
-            return
-        self._notify("Mode removed")
-        self._rebuild_switch_menu()
-        self._rebuild_modes_manage_menu()
+    def _select_save_path(self, title: str, default_filename: str, filter_spec: str) -> Optional[Path]:
+        """Open a save dialog and return selected Path or None if cancelled."""
+        # Use last used dir or appdata_root by default
+        default_dir = str(appdata_root())
+        suggested = str(Path(default_dir) / default_filename)
+        fname, _ = QFileDialog.getSaveFileName(None, title, suggested, filter_spec)
+        if not fname:
+            return None
+        return Path(fname)
 
     def _notify(self, message: str):
         self.tray.showMessage("VirtualManWeek", message, QSystemTrayIcon.Information, 4000)
 
-    def custom_switch_dialog(self):
-        mode, okm = QInputDialog.getText(None, "New Mode", "Mode label:")
-        if not okm or not mode.strip():
-            return
-        desc, okd = QInputDialog.getMultiLineText(None, "Description", f"Details for '{mode.strip()}' (optional):", "")
-        if not okd:
-            desc = None
-        proj = getattr(self, 'current_project_id', None)
-        if self.tracker.active is None:
-            self.tracker.start(project_id=proj, mode_label=mode.strip(), description=desc)
-        else:
-            self.tracker.switch(project_id=proj, mode_label=mode.strip(), description=desc)
-        try:
-            models.upsert_mode(mode.strip())
-        except Exception:
-            pass
-        self._rebuild_switch_menu()
-        self._rebuild_modes_manage_menu()
-        self._update_current_label()
+    def quit(self):
+        self.tracker.flush_all()
+        self.tray.hide()
+        self.app.quit()
 
-    def open_projects(self):
-        dlg = ProjectDialog()
-        dlg.exec()
-        self._rebuild_projects_menu()
+    def run(self):
+        sys.exit(self.app.exec())
 
-    def select_no_project(self):
-        self.current_project_id = None
-        if self.tracker.active:
-            mode = self.tracker.active.mode_label
-            self.tracker.switch(project_id=None, mode_label=mode, description=None)
-        self._update_current_label()
-
-    def select_project(self, project_id: int):
-        self.current_project_id = project_id
-        if self.tracker.active:
-            mode = self.tracker.active.mode_label
-            self.tracker.switch(project_id=project_id, mode_label=mode, description=None)
-        self._update_current_label()
+    def _on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:  # left click
+            # Show context menu at cursor
+            self.menu.popup(QCursor.pos())
 
     def reset_database(self):
+        """Clear all logged entries after user confirmation (non-destructive to modes/projects)."""
+        from PySide6.QtWidgets import QMessageBox
         try:
-            _ = models.db_path()
+            path = models.db_path()
         except Exception as e:
             self._notify(f"DB path error: {e}")
             return
@@ -780,6 +603,7 @@ new Chart(document.getElementById('c').getContext('2d'), {{
             self.tracker.flush_all()
         except Exception:
             pass
+        # Use models.clear_logged_entries instead of deleting file
         try:
             stats = models.clear_logged_entries()
         except Exception as e:
@@ -792,6 +616,7 @@ new Chart(document.getElementById('c').getContext('2d'), {{
         self._notify(f"Cleared: {stats['time_entries']} entries, {stats['weeks']} weeks. Modes reset: {stats['modes_reset']}")
 
     def export_database(self):
+        """Export (copy) the current SQLite database file to user-selected path."""
         try:
             src = models.db_path()
             if not src.exists():
@@ -810,6 +635,8 @@ new Chart(document.getElementById('c').getContext('2d'), {{
             self._notify(f"Export failed: {e}")
 
     def import_database(self):
+        """Import (replace) the current SQLite database from a user-selected file."""
+        from PySide6.QtWidgets import QMessageBox, QFileDialog
         try:
             cur_path = models.db_path()
         except Exception as e:
@@ -836,35 +663,22 @@ new Chart(document.getElementById('c').getContext('2d'), {{
         )
         if resp != QMessageBox.Yes:
             return
+        # Stop current tracking
         try:
             self.tracker.flush_all()
         except Exception:
             pass
         try:
             shutil.copy2(src, cur_path)
-            models.initialize()
+            models.initialize()  # ensure schema compatibility
             self.tracker.active = None
             self._rebuild_switch_menu()
             self._rebuild_modes_manage_menu()
-            if hasattr(self, 'projects_menu'):
-                self._rebuild_projects_menu()
             self._update_current_label()
             self._notify("Database imported successfully")
         except Exception as e:
             self._notify(f"Import failed: {e}")
 
-    def quit(self):
-        self.tracker.flush_all()
-        self.tray.hide()
-        self.app.quit()
-
-    def run(self):
-        sys.exit(self.app.exec())
-
-    def _on_tray_activated(self, reason):
-        if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            self.menu.popup(QCursor.pos())
-
-def run_tray():  # entry helper for main.py
+def run_tray():  # entry helper
     app = TrayApp()
     app.run()

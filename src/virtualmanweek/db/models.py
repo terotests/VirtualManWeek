@@ -3,18 +3,40 @@ import sqlite3
 from pathlib import Path
 from typing import Optional, Iterable
 from datetime import datetime, date
-from ..config import appdata_root
+from ..config import appdata_root, settings_path
+import json
 
 DB_FILE = "data.sqlite3"
 SCHEMA_VERSION = 1
 
+# Mutable override (set from UI based on Settings)
+_DB_PATH_OVERRIDE: Optional[Path] = None
+
+
+def set_db_path(path: Path | None) -> None:
+    global _DB_PATH_OVERRIDE
+    _DB_PATH_OVERRIDE = path
+
 
 def db_path() -> Path:
+    if _DB_PATH_OVERRIDE:
+        return _DB_PATH_OVERRIDE
+    # Try to read persisted setting for database_path to avoid circular import of Settings dataclass
+    try:
+        p = settings_path()
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            dbp = data.get("database_path")
+            if dbp:
+                return Path(dbp)
+    except Exception:
+        pass
     return appdata_root() / DB_FILE
 
 
 def connect() -> sqlite3.Connection:
     path = db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
