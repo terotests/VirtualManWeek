@@ -60,6 +60,7 @@ def initialize() -> None:
         cur.execute("INSERT INTO meta(key,value) VALUES('schema_version', ?)", (str(SCHEMA_VERSION),))
     # Ensure new columns (lightweight migration)
     _ensure_time_entries_description(cur)
+    _ensure_time_entries_manual_seconds(cur)
     conn.commit()
     conn.close()
 
@@ -98,6 +99,7 @@ def _create_schema(cur: sqlite3.Cursor) -> None:
             end_ts INTEGER,
             active_seconds INTEGER,
             idle_seconds INTEGER DEFAULT 0,
+            manual_seconds INTEGER DEFAULT 0,
             project_id INTEGER,
             mode_label TEXT,
             description TEXT,
@@ -118,6 +120,13 @@ def _ensure_time_entries_description(cur: sqlite3.Cursor) -> None:
     cols = [r[1] for r in cur.fetchall()]
     if "description" not in cols:
         cur.execute("ALTER TABLE time_entries ADD COLUMN description TEXT")
+
+
+def _ensure_time_entries_manual_seconds(cur: sqlite3.Cursor) -> None:
+    cur.execute("PRAGMA table_info(time_entries)")
+    cols = [r[1] for r in cur.fetchall()]
+    if "manual_seconds" not in cols:
+        cur.execute("ALTER TABLE time_entries ADD COLUMN manual_seconds INTEGER DEFAULT 0")
 
 
 def upsert_project(code: str, name: str) -> int:
@@ -183,7 +192,7 @@ def iso_week_start(iso_year: int, iso_week: int) -> date:
 
 
 def insert_time_entry(
-    *, start_ts: int, end_ts: int, active_seconds: int, idle_seconds: int, project_id: Optional[int], mode_label: str, description: Optional[str] = None, source: str = "auto"
+    *, start_ts: int, end_ts: int, active_seconds: int, idle_seconds: int, project_id: Optional[int], mode_label: str, description: Optional[str] = None, source: str = "auto", manual_seconds: int = 0
 ) -> None:
     dt = datetime.fromtimestamp(start_ts)
     week_id = ensure_week(dt.date())
@@ -191,9 +200,9 @@ def insert_time_entry(
     with connect() as conn:
         cur = conn.cursor()
         cur.execute(
-            """INSERT INTO time_entries(week_id,date,start_ts,end_ts,active_seconds,idle_seconds,project_id,mode_label,description,source)
-               VALUES(?,?,?,?,?,?,?,?,?,?)""",
-            (week_id, date_str, start_ts, end_ts, active_seconds, idle_seconds, project_id, mode_label, description, source),
+            """INSERT INTO time_entries(week_id,date,start_ts,end_ts,active_seconds,idle_seconds,manual_seconds,project_id,mode_label,description,source)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (week_id, date_str, start_ts, end_ts, active_seconds, idle_seconds, manual_seconds, project_id, mode_label, description, source),
         )
         conn.commit()
 
@@ -275,3 +284,34 @@ def clear_logged_entries() -> dict:
         stats["modes_reset"] = cur.fetchone()[0]
         conn.commit()
     return stats
+
+
+def get_last_entry_end_time(date_str: str) -> Optional[int]:
+    """Get the end timestamp of the last NON-IDLE entry for a given date.
+    Returns None if no non-idle entries exist for that date."""
+    with connect() as conn:
+        cur = conn.cursor()
+        # Try to get end_ts first, but if it's None or 0, calculate from start_ts + duration
+        # Exclude entries where mode_label is 'Idle' (case-insensitive)
+        cur.execute(
+            """SELECT start_ts, end_ts, active_seconds, idle_seconds, manual_seconds 
+               FROM time_entries WHERE date=? AND LOWER(mode_label) != 'idle' 
+               ORDER BY start_ts DESC LIMIT 1""",
+            (date_str,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        
+        start_ts, end_ts, active_seconds, idle_seconds, manual_seconds = row
+        
+        # If we have a valid end_ts, use it
+        if end_ts and end_ts > 0:
+            return end_ts
+        
+        # Otherwise calculate from start_ts + total duration
+        if start_ts:
+            total_seconds = (active_seconds or 0) + (idle_seconds or 0) + (manual_seconds or 0)
+            return start_ts + total_seconds
+        
+        return None

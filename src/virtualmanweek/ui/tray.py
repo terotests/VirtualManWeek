@@ -3,7 +3,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Optional
-from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox, QStyle, QInputDialog, QFileDialog
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox, QStyle, QInputDialog, QFileDialog, QDialog
 from PySide6.QtGui import QIcon, QAction, QActionGroup, QCursor, QPixmap, QPainter, QColor, QPen, QFont
 from PySide6.QtCore import QTimer, QRect, Qt
 import time  # ensure time available for formatting
@@ -15,6 +15,7 @@ from ..tracking.engine import Tracker
 from ..db import models
 from ..utils.constants import QUICK_MODES  # added import
 from .project_dialog import ProjectDialog  # new import
+from .mode_switch_dialog import ModeSwitchDialog  # mode switching with manual time
 from ..reporting import charts  # HTML-only chart export
 import shutil  # for DB export/import
 
@@ -477,14 +478,14 @@ class TrayApp:
             with models.connect() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT date, project_id, mode_label, active_seconds, idle_seconds, description FROM time_entries ORDER BY start_ts DESC LIMIT 100"
+                    "SELECT date, project_id, mode_label, active_seconds, idle_seconds, manual_seconds, description FROM time_entries ORDER BY start_ts DESC LIMIT 100"
                 )
                 rows = cur.fetchall()
             path = self._select_save_path("Save Time Entries CSV", "raw_entries.csv", "CSV Files (*.csv);;All Files (*.*)")
             if not path:
                 return
             with path.open("w", encoding="utf-8") as f:
-                f.write("date,project_id,mode,active_seconds,idle_seconds,description\n")
+                f.write("date,project_id,mode,active_seconds,idle_seconds,manual_seconds,description\n")
                 for r in rows:
                     desc = r["description"] or ""
                     if '"' in desc:
@@ -493,8 +494,9 @@ class TrayApp:
                         desc_out = f'"{desc}"'
                     else:
                         desc_out = desc
+                    manual_secs = r.get("manual_seconds", 0) or 0
                     f.write(
-                        f"{r['date']},{r['project_id'] if r['project_id'] is not None else ''},{r['mode_label']},{r['active_seconds']},{r['idle_seconds']},{desc_out}\n"
+                        f"{r['date']},{r['project_id'] if r['project_id'] is not None else ''},{r['mode_label']},{r['active_seconds']},{r['idle_seconds']},{manual_secs},{desc_out}\n"
                     )
             self._notify(f"Exported {len(rows)} rows to {path}")
         except Exception as e:
@@ -509,14 +511,17 @@ class TrayApp:
         self._update_current_label()
 
     def switch_mode(self, mode_label: str):
-        desc, ok = QInputDialog.getMultiLineText(None, "Description", f"Details for '{mode_label}' (optional):", "")
-        if not ok:
-            desc = None
+        dialog = ModeSwitchDialog(mode_label)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        
+        description, manual_seconds = dialog.get_result()
         proj = getattr(self, 'current_project_id', None)
+        
         if self.tracker.active is None:
-            self.tracker.start(project_id=proj, mode_label=mode_label, description=desc)
+            self.tracker.start(project_id=proj, mode_label=mode_label, description=description, manual_seconds=manual_seconds)
         else:
-            self.tracker.switch(project_id=proj, mode_label=mode_label, description=desc)
+            self.tracker.switch(project_id=proj, mode_label=mode_label, description=description, manual_seconds=manual_seconds)
         self._update_current_label()
 
     def _delete_mode(self, mode_id: int):
@@ -536,14 +541,19 @@ class TrayApp:
         mode, okm = QInputDialog.getText(None, "New Mode", "Mode label:")
         if not okm or not mode.strip():
             return
-        desc, okd = QInputDialog.getMultiLineText(None, "Description", f"Details for '{mode.strip()}' (optional):", "")
-        if not okd:
-            desc = None
+        
+        dialog = ModeSwitchDialog(mode.strip())
+        if dialog.exec() != QDialog.Accepted:
+            return
+        
+        description, manual_seconds = dialog.get_result()
         proj = getattr(self, 'current_project_id', None)
+        
         if self.tracker.active is None:
-            self.tracker.start(project_id=proj, mode_label=mode.strip(), description=desc)
+            self.tracker.start(project_id=proj, mode_label=mode.strip(), description=description, manual_seconds=manual_seconds)
         else:
-            self.tracker.switch(project_id=proj, mode_label=mode.strip(), description=desc)
+            self.tracker.switch(project_id=proj, mode_label=mode.strip(), description=description, manual_seconds=manual_seconds)
+        
         try:
             models.upsert_mode(mode.strip())
         except Exception:

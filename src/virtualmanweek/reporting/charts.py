@@ -64,7 +64,7 @@ def render_mode_distribution_html(html_path: Path) -> None:
         # Per-mode details
         for mode in labels:
             cur.execute(
-                "SELECT date, start_ts, end_ts, active_seconds, idle_seconds, description FROM time_entries WHERE mode_label=? ORDER BY active_seconds DESC, start_ts DESC LIMIT 200",
+                "SELECT date, start_ts, end_ts, active_seconds, idle_seconds, manual_seconds, description FROM time_entries WHERE mode_label=? ORDER BY active_seconds DESC, start_ts DESC LIMIT 200",
                 (mode,),
             )
             rows = cur.fetchall()
@@ -77,20 +77,21 @@ def render_mode_distribution_html(html_path: Path) -> None:
                 dt_str = _fmt_dt(r['start_ts'])
                 active_fmt = _fmt_time_short(r['active_seconds'])
                 idle_fmt = _fmt_time_short(r['idle_seconds']) if r['idle_seconds'] else ''
-                total_fmt = _fmt_time_short(r['active_seconds'] + (r['idle_seconds'] or 0))
+                manual_fmt = _fmt_time_short(r['manual_seconds'] if 'manual_seconds' in r.keys() and r['manual_seconds'] else 0) if ('manual_seconds' in r.keys() and r['manual_seconds']) else ''
+                total_fmt = _fmt_time_short(r['active_seconds'] + (r['idle_seconds'] or 0) + (r['manual_seconds'] if 'manual_seconds' in r.keys() and r['manual_seconds'] else 0))
                 row_html_parts.append(
-                    f"<tr><td>{dt_str}</td><td class='num'>{active_fmt}</td><td class='num'>{idle_fmt}</td><td class='num'>{total_fmt}</td><td class='desc'>{desc}</td></tr>"
+                    f"<tr><td>{dt_str}</td><td class='num'>{active_fmt}</td><td class='num'>{idle_fmt}</td><td class='num'>{manual_fmt}</td><td class='num'>{total_fmt}</td><td class='desc'>{desc}</td></tr>"
                 )
             table_html = (
                 f"<h4>{_html.escape(mode)}</h4>"
-                "<table class='mode'><thead><tr><th>Date/Start Time</th><th>Active</th><th>Idle</th><th>Total</th><th>Description</th></tr></thead><tbody>"
+                "<table class='mode'><thead><tr><th>Date/Start Time</th><th>Active</th><th>Idle</th><th>Manual</th><th>Total</th><th>Description</th></tr></thead><tbody>"
                 + "".join(row_html_parts)
                 + "</tbody></table>"
             )
             per_mode_tables.append(table_html)
         # Daily timeline
         cur.execute(
-            "SELECT date, start_ts, active_seconds, idle_seconds, mode_label, description FROM time_entries ORDER BY date ASC, start_ts ASC LIMIT 2000"
+            "SELECT date, start_ts, active_seconds, idle_seconds, manual_seconds, mode_label, description FROM time_entries ORDER BY date ASC, start_ts ASC LIMIT 2000"
         )
         daily_rows = cur.fetchall()
         if daily_rows:
@@ -111,12 +112,13 @@ def render_mode_distribution_html(html_path: Path) -> None:
                     desc = _html.escape(desc)
                     active_fmt = _fmt_time_short(r['active_seconds'])
                     idle_fmt = _fmt_time_short(r['idle_seconds']) if r['idle_seconds'] else ''
-                    total_fmt = _fmt_time_short(r['active_seconds'] + (r['idle_seconds'] or 0))
+                    manual_fmt = _fmt_time_short(r['manual_seconds'] if 'manual_seconds' in r.keys() and r['manual_seconds'] else 0) if ('manual_seconds' in r.keys() and r['manual_seconds']) else ''
+                    total_fmt = _fmt_time_short(r['active_seconds'] + (r['idle_seconds'] or 0) + (r['manual_seconds'] if 'manual_seconds' in r.keys() and r['manual_seconds'] else 0))
                     row_parts.append(
-                        f"<tr><td>{t_str}</td><td>{_html.escape(r['mode_label'])}</td><td class='num'>{active_fmt}</td><td class='num'>{idle_fmt}</td><td class='num'>{total_fmt}</td><td class='desc'>{desc}</td></tr>"
+                        f"<tr><td>{t_str}</td><td>{_html.escape(r['mode_label'])}</td><td class='num'>{active_fmt}</td><td class='num'>{idle_fmt}</td><td class='num'>{manual_fmt}</td><td class='num'>{total_fmt}</td><td class='desc'>{desc}</td></tr>"
                     )
                 daily_tables.append(
-                    f"<h4>{weekday} {d}</h4><table class='mode'><thead><tr><th>Start</th><th>Mode</th><th>Active</th><th>Idle</th><th>Total</th><th>Description</th></tr></thead><tbody>{''.join(row_parts)}</tbody></table>"
+                    f"<h4>{weekday} {d}</h4><table class='mode'><thead><tr><th>Start</th><th>Mode</th><th>Active</th><th>Idle</th><th>Manual</th><th>Total</th><th>Description</th></tr></thead><tbody>{''.join(row_parts)}</tbody></table>"
                 )
 
     detail_section = "\n".join(per_mode_tables) if per_mode_tables else "<p><em>No detailed entries.</em></p>"

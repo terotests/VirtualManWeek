@@ -36,7 +36,7 @@ class Tracker:
         # Recovery from attributed idle (non-split) state
         self.active_recovery_start: Optional[int] = None  # when continuous activity began after idle attribution
 
-    def start(self, project_id: Optional[int], mode_label: str, description: Optional[str] = None):
+    def start(self, project_id: Optional[int], mode_label: str, description: Optional[str] = None, manual_seconds: int = 0):
         now = int(time.time())
         if self.active:
             self._close(now)
@@ -44,14 +44,15 @@ class Tracker:
         models.upsert_mode(norm_mode)
         self.active = ActiveSession(project_id=project_id, mode_label=norm_mode, start_ts=now)
         self._active_description = description
+        self._active_manual_seconds = manual_seconds
         # If starting any non-Idle mode, clear pending resume
         if norm_mode.lower() != 'idle':
             self.resume_mode_label = None
             self.resume_active_start_ts = None
-        logger.info(f"Start session project={project_id} mode={norm_mode}")
+        logger.info(f"Start session project={project_id} mode={norm_mode} manual={manual_seconds}s")
 
-    def switch(self, project_id: Optional[int], mode_label: str, description: Optional[str] = None):
-        self.start(project_id, mode_label, description)
+    def switch(self, project_id: Optional[int], mode_label: str, description: Optional[str] = None, manual_seconds: int = 0):
+        self.start(project_id, mode_label, description, manual_seconds)
 
     def activity_ping(self):
         if not self.active:
@@ -154,7 +155,7 @@ class Tracker:
         if self.active:
             self.stop()
 
-    def _close(self, end_ts: int):
+    def _close(self, end_ts: int, manual_seconds: int = 0):
         sess = self.active
         if not sess:
             return
@@ -165,16 +166,20 @@ class Tracker:
         idle_seconds = min(sess.idle_accum, duration)
         active_seconds = max(0, duration - idle_seconds)
         logger.info(
-            f"Close session project={sess.project_id} mode={sess.mode_label} dur={duration}s active={active_seconds}s idle={idle_seconds}s"
+            f"Close session project={sess.project_id} mode={sess.mode_label} dur={duration}s active={active_seconds}s idle={idle_seconds}s manual={manual_seconds}s"
         )
+        # Use manual_seconds from parameter or stored value
+        total_manual = manual_seconds or getattr(self, '_active_manual_seconds', 0) or 0
         models.insert_time_entry(
             start_ts=sess.start_ts,
             end_ts=end_ts,
             active_seconds=active_seconds,
             idle_seconds=idle_seconds,
+            manual_seconds=total_manual,
             project_id=sess.project_id,
             mode_label=sess.mode_label,
             description=getattr(self, '_active_description', None),
             source="auto",
         )
         self._active_description = None
+        self._active_manual_seconds = 0
