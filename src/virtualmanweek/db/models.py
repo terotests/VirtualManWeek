@@ -108,6 +108,10 @@ def _create_schema(cur: sqlite3.Cursor) -> None:
             FOREIGN KEY(project_id) REFERENCES projects(id),
             FOREIGN KEY(week_id) REFERENCES weeks(id)
         );
+        CREATE TABLE setup(
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
         CREATE INDEX idx_time_entries_week_date ON time_entries(week_id, date);
         CREATE INDEX idx_modes_usage ON modes(usage_count DESC);
         CREATE INDEX idx_projects_code ON projects(code_lower);
@@ -241,14 +245,57 @@ def list_modes():
     """Return all stored modes with usage stats."""
     with connect() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id, label, usage_count, last_used_at FROM modes ORDER BY LOWER(label)")
-        return [dict(r) for r in cur.fetchall()]
+        # Get all modes with actual usage count from time_entries
+        cur.execute("""
+            SELECT 
+                m.id, 
+                m.label, 
+                COALESCE(usage.count, 0) as count,
+                m.last_used_at 
+            FROM modes m
+            LEFT JOIN (
+                SELECT mode_label, COUNT(*) as count 
+                FROM time_entries 
+                GROUP BY mode_label
+            ) usage ON m.label = usage.mode_label
+            ORDER BY LOWER(m.label)
+        """)
+        modes_from_db = [dict(r) for r in cur.fetchall()]
+        
+        # Also get any modes that exist in time_entries but not in modes table
+        cur.execute("""
+            SELECT DISTINCT mode_label 
+            FROM time_entries 
+            WHERE mode_label NOT IN (SELECT label FROM modes)
+        """)
+        orphaned_modes = [r[0] for r in cur.fetchall()]
+        
+        # Add orphaned modes as temporary entries
+        for mode_label in orphaned_modes:
+            cur.execute("SELECT COUNT(*) FROM time_entries WHERE mode_label = ?", (mode_label,))
+            count = cur.fetchone()[0]
+            modes_from_db.append({
+                'id': None,  # No ID since it's not in modes table
+                'label': mode_label,
+                'count': count,
+                'last_used_at': None
+            })
+        
+        return sorted(modes_from_db, key=lambda x: x['label'].lower())
 
 
 def delete_mode(mode_id: int):
     with connect() as conn:
         cur = conn.cursor()
         cur.execute("DELETE FROM modes WHERE id=?", (mode_id,))
+        conn.commit()
+
+
+def update_mode(mode_id: int, new_label: str):
+    """Update the label of an existing mode."""
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE modes SET label=? WHERE id=?", (new_label, mode_id))
         conn.commit()
 
 
@@ -315,3 +362,53 @@ def get_last_entry_end_time(date_str: str) -> Optional[int]:
             return start_ts + total_seconds
         
         return None
+
+
+def _ensure_setup_table(cur: sqlite3.Cursor) -> None:
+    """Ensure the setup table exists for tracking initialization state."""
+    try:
+        cur.execute("SELECT COUNT(*) FROM setup LIMIT 1")
+    except sqlite3.OperationalError:
+        # Table doesn't exist, create it
+        cur.execute("""
+            CREATE TABLE setup(
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+
+
+def initialize_default_modes():
+    """Initialize default modes if not already done."""
+    from ..utils.constants import QUICK_MODES
+    
+    with connect() as conn:
+        cur = conn.cursor()
+        
+        # Ensure setup table exists
+        _ensure_setup_table(cur)
+        
+        # Check if modes have been initialized
+        cur.execute("SELECT value FROM setup WHERE key = 'modes_initialized'")
+        row = cur.fetchone()
+        
+        if row and row[0] == '1':
+            return  # Already initialized
+        
+        # Add default modes that don't exist yet
+        for mode_label in QUICK_MODES:
+            mode_lower = mode_label.lower()
+            cur.execute("SELECT id FROM modes WHERE label_lower = ?", (mode_lower,))
+            if not cur.fetchone():
+                # Mode doesn't exist, add it
+                cur.execute(
+                    "INSERT INTO modes(label, label_lower, usage_count, last_used_at) VALUES(?, ?, 0, NULL)",
+                    (mode_label, mode_lower)
+                )
+        
+        # Mark as initialized
+        cur.execute(
+            "INSERT OR REPLACE INTO setup(key, value) VALUES('modes_initialized', '1')"
+        )
+        
+        conn.commit()

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from ..db import models
+from ..reporting.charts import _fmt_time_short  # Import time formatting function
 
 class ModeSwitchDialog(QDialog):
     def __init__(self, mode_label: str, parent=None):
@@ -86,13 +87,11 @@ class ModeSwitchDialog(QDialog):
                 current_ts = int(time.time())
                 idle_seconds = current_ts - last_end_ts
                 if idle_seconds > 0:
-                    hours = idle_seconds // 3600
-                    minutes = (idle_seconds % 3600) // 60
                     last_end_time = datetime.fromtimestamp(last_end_ts).strftime('%H:%M:%S')
                     current_time = datetime.fromtimestamp(current_ts).strftime('%H:%M:%S')
                     self.idle_info_label.setText(
                         f"Last work entry ended at {last_end_time}, current time {current_time} "
-                        f"(idle time: {hours}h {minutes}m = {idle_seconds}s total)"
+                        f"(idle time: {_fmt_time_short(idle_seconds)} = {idle_seconds}s total)"
                     )
                     self.fill_idle_btn.setEnabled(True)
                     return
@@ -125,7 +124,7 @@ class ModeSwitchDialog(QDialog):
                     self.minutes_spin.setValue(minutes)
                     # Update the info label with the filled values
                     self.idle_info_label.setText(
-                        f"Filled: {hours}h {minutes}m (total {idle_seconds}s since last entry)"
+                        f"Filled: {_fmt_time_short(idle_seconds)} (total {idle_seconds}s since last entry)"
                     )
                 else:
                     QMessageBox.warning(self, "Error", f"Calculated idle time is {idle_seconds} seconds (not positive)")

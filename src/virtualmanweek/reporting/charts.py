@@ -17,11 +17,28 @@ def compute_scale_unit(max_seconds: int) -> Tuple[float, str]:
 
 
 def _fmt_time_short(sec: int) -> str:
-    if sec >= 3600:
-        return f"{sec/3600:.2f}h"
-    if sec >= 60:
-        return f"{sec/60:.1f}m"
-    return f"{sec}s"
+    """Format seconds into a readable time string.
+    
+    Examples:
+    - 45 -> "45s"
+    - 125 -> "2min 5s"
+    - 3665 -> "1h 1min"
+    """
+    if sec < 60:
+        return f"{sec}s"
+    elif sec < 3600:
+        minutes = sec // 60
+        seconds = sec % 60
+        if seconds == 0:
+            return f"{minutes}min"
+        return f"{minutes}min {seconds}s"
+    else:
+        hours = sec // 3600
+        remaining = sec % 3600
+        minutes = remaining // 60
+        if minutes == 0:
+            return f"{hours}h"
+        return f"{hours}h {minutes}min"
 
 
 def _fmt_dt(ts: int) -> str:

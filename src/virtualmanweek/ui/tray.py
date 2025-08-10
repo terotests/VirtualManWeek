@@ -8,15 +8,16 @@ from PySide6.QtGui import QIcon, QAction, QActionGroup, QCursor, QPixmap, QPaint
 from PySide6.QtCore import QTimer, QRect, Qt
 import time  # ensure time available for formatting
 import webbrowser  # new for HTML fallback
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..config import Settings, appdata_root
 from ..tracking.engine import Tracker
 from ..db import models
-from ..utils.constants import QUICK_MODES  # added import
 from .project_dialog import ProjectDialog  # new import
 from .mode_switch_dialog import ModeSwitchDialog  # mode switching with manual time
+from .mode_dialog import ModeDialog  # mode management dialog
 from ..reporting import charts  # HTML-only chart export
+from ..reporting.charts import _fmt_time_short  # Import time formatting function
 import shutil  # for DB export/import
 
 # Windows idle detection
@@ -49,6 +50,8 @@ class TrayApp:
         self.app.setQuitOnLastWindowClosed(False)  # keep running with only tray
         # Ensure a database is selected/created before tracker starts
         self._bootstrap_database_selection()
+        # Initialize default modes if not already done
+        models.initialize_default_modes()
         self.tracker = Tracker(self.settings)
         # Track current project selection for quick switching
         self.current_project_id: Optional[int] = None
@@ -179,10 +182,6 @@ class TrayApp:
         self.switch_menu = self.menu.addMenu("Switch Mode")
         self._rebuild_switch_menu()
 
-        # Modes management menu
-        self.modes_manage_menu = self.menu.addMenu("Modes")
-        self._rebuild_modes_manage_menu()
-
         idle_act = QAction("Set Idle", self.menu)
         idle_act.triggered.connect(lambda: self.switch_mode("Idle"))
         self.menu.addAction(idle_act)
@@ -193,15 +192,14 @@ class TrayApp:
         self._rebuild_projects_menu()
         self.menu.addSeparator()
 
-        export_act = QAction("Export Week (CSV)", self.menu)
-        export_act.triggered.connect(self.export_week_csv)
-        self.menu.addAction(export_act)
-
-        # Statistics menu
-        stats_menu = self.menu.addMenu("Statistics")
-        modes_bar = QAction("Mode Distribution", stats_menu)
-        modes_bar.triggered.connect(self.show_mode_distribution)
-        stats_menu.addAction(modes_bar)
+        # Export menu
+        export_menu = self.menu.addMenu("Export")
+        csv_act = QAction("CSV...", export_menu)
+        csv_act.triggered.connect(self.export_week_csv)
+        export_menu.addAction(csv_act)
+        html_act = QAction("HTML...", export_menu)
+        html_act.triggered.connect(self.show_mode_distribution)
+        export_menu.addAction(html_act)
 
         # Admin menu
         admin_menu = self.menu.addMenu("Admin")
@@ -238,54 +236,24 @@ class TrayApp:
         self.tray.show()
 
     def _rebuild_switch_menu(self):
-        """Populate the switch mode submenu with quick modes + stored custom modes + Custom... entry."""
+        """Populate the switch mode submenu with modes from the current database."""
         self.switch_menu.clear()
-        # Quick modes (fixed order)
-        for mode in QUICK_MODES:
+        # Load all modes from current database
+        try:
+            all_modes = models.mode_suggestions()
+        except Exception:
+            all_modes = []
+        
+        # Add all modes from database
+        for mode in sorted(all_modes, key=lambda s: s.lower()):
             act = QAction(mode, self.switch_menu)
             act.triggered.connect(lambda checked=False, m=mode: self.switch_mode(m))
             self.switch_menu.addAction(act)
-        # Load custom modes from DB (exclude quick modes, case-insensitive)
-        try:
-            quick_set = {q.lower() for q in QUICK_MODES}
-            custom_modes = [m for m in models.mode_suggestions() if m.lower() not in quick_set]
-        except Exception:
-            custom_modes = []
-        if custom_modes:
-            self.switch_menu.addSeparator()
-            for mode in sorted(custom_modes, key=lambda s: s.lower()):
-                act = QAction(mode, self.switch_menu)
-                act.triggered.connect(lambda checked=False, m=mode: self.switch_mode(m))
-                self.switch_menu.addAction(act)
-        # Final separator + custom creator
+        # Final separator + edit modes
         self.switch_menu.addSeparator()
-        custom_act = QAction("Custom...", self.switch_menu)
-        custom_act.triggered.connect(self.custom_switch_dialog)
-        self.switch_menu.addAction(custom_act)
-
-    def _rebuild_modes_manage_menu(self):
-        self.modes_manage_menu.clear()
-        try:
-            quick_set = {q.lower() for q in QUICK_MODES}
-            all_modes = models.list_modes()
-        except Exception:
-            all_modes = []
-        # Only show deletable for non-quick modes
-        deletable = [m for m in all_modes if m['label'].lower() not in quick_set]
-        if not deletable:
-            dummy = QAction("(No custom modes)", self.modes_manage_menu)
-            dummy.setEnabled(False)
-            self.modes_manage_menu.addAction(dummy)
-        else:
-            for m in deletable:
-                label = f"Delete: {m['label']}"
-                act = QAction(label, self.modes_manage_menu)
-                act.triggered.connect(lambda checked=False, mid=m['id']: self._delete_mode(mid))
-                self.modes_manage_menu.addAction(act)
-        self.modes_manage_menu.addSeparator()
-        refresh_act = QAction("Refresh", self.modes_manage_menu)
-        refresh_act.triggered.connect(self._rebuild_modes_manage_menu)
-        self.modes_manage_menu.addAction(refresh_act)
+        edit_act = QAction("Edit...", self.switch_menu)
+        edit_act.triggered.connect(self.open_modes)
+        self.switch_menu.addAction(edit_act)
 
     def _rebuild_projects_menu(self):
         self.projects_menu.clear()
@@ -355,13 +323,7 @@ class TrayApp:
         self.timer.start()
 
     def _format_elapsed(self, seconds: int) -> str:
-        if seconds < 60:
-            return f"{seconds}s"
-        m, s = divmod(seconds, 60)
-        if m < 60:
-            return f"{m}m{s:02d}s"
-        h, m = divmod(m, 60)
-        return f"{h}h{m:02d}m{s:02d}s"
+        return _fmt_time_short(seconds)
 
     def _poll_loop(self):
         # Poll first (with external idle seconds) so sleep gaps & idle are accounted before activity ping
@@ -440,11 +402,12 @@ class TrayApp:
             path.parent.mkdir(parents=True, exist_ok=True)
             models.set_db_path(path)
             models.initialize()
+            # Initialize default modes for new/switched database
+            models.initialize_default_modes()
             self.settings.database_path = str(path)
             self.settings.save()
             if hasattr(self, 'menu') and self.menu:
                 self._rebuild_switch_menu()
-                self._rebuild_modes_manage_menu()
                 if hasattr(self, 'projects_menu'):
                     self._rebuild_projects_menu()
                 self._update_current_label()  # This will update database info too
@@ -482,10 +445,29 @@ class TrayApp:
         self.current_project_id = None
         self._apply_database(Path(fname))
 
+    def _generate_export_filename(self, extension: str) -> str:
+        """Generate standardized export filename: VMW_<dbname>_<monday_date>.<ext>"""
+        try:
+            # Get database name (without extension)
+            db_path = models.db_path()
+            db_name = db_path.stem
+            
+            # Get Monday of current week
+            today = datetime.now().date()
+            days_since_monday = today.weekday()  # 0=Monday, 6=Sunday
+            monday = today - timedelta(days=days_since_monday)
+            monday_str = monday.strftime('%Y_%m_%d')
+            
+            return f"VMW_{db_name}_{monday_str}.{extension}"
+        except Exception:
+            # Fallback to simple filename if something goes wrong
+            return f"VMW_export.{extension}"
+
     # Charts: show mode distribution (HTML-only export)
     def show_mode_distribution(self):
+        default_filename = self._generate_export_filename("html")
         path = self._select_save_path(
-            "Save Chart HTML", "mode_distribution.html", "HTML Files (*.html);;All Files (*.*)"
+            "Save Chart HTML", default_filename, "HTML Files (*.html);;All Files (*.*)"
         )
         if not path:
             return
@@ -505,7 +487,8 @@ class TrayApp:
                     "SELECT date, project_id, mode_label, active_seconds, idle_seconds, manual_seconds, description FROM time_entries ORDER BY start_ts DESC LIMIT 100"
                 )
                 rows = cur.fetchall()
-            path = self._select_save_path("Save Time Entries CSV", "raw_entries.csv", "CSV Files (*.csv);;All Files (*.*)")
+            default_filename = self._generate_export_filename("csv")
+            path = self._select_save_path("Save Time Entries CSV", default_filename, "CSV Files (*.csv);;All Files (*.*)")
             if not path:
                 return
             with path.open("w", encoding="utf-8") as f:
@@ -583,40 +566,20 @@ class TrayApp:
             return
             
         self._rebuild_switch_menu()
-        self._rebuild_modes_manage_menu()
 
     def _notify(self, message: str):
         self.tray.showMessage("VirtualManWeek", message, QSystemTrayIcon.Information, 4000)
-
-    def custom_switch_dialog(self):
-        mode, okm = QInputDialog.getText(None, "New Mode", "Mode label:")
-        if not okm or not mode.strip():
-            return
-        
-        dialog = ModeSwitchDialog(mode.strip())
-        if dialog.exec() != QDialog.Accepted:
-            return
-        
-        description, manual_seconds = dialog.get_result()
-        proj = getattr(self, 'current_project_id', None)
-        
-        if self.tracker.active is None:
-            self.tracker.start(project_id=proj, mode_label=mode.strip(), description=description, manual_seconds=manual_seconds)
-        else:
-            self.tracker.switch(project_id=proj, mode_label=mode.strip(), description=description, manual_seconds=manual_seconds)
-        
-        try:
-            models.upsert_mode(mode.strip())
-        except Exception:
-            pass
-        self._rebuild_switch_menu()
-        self._rebuild_modes_manage_menu()
-        self._update_current_label()
 
     def open_projects(self):
         dlg = ProjectDialog()
         dlg.exec()
         self._rebuild_projects_menu()
+
+    def open_modes(self):
+        dlg = ModeDialog()
+        dlg.exec()
+        # Refresh mode-related menus after editing
+        self._rebuild_switch_menu()
 
     def select_no_project(self):
         self.current_project_id = None
@@ -659,7 +622,6 @@ class TrayApp:
         self.tracker.active = None
         self._update_current_label()
         self._rebuild_switch_menu()
-        self._rebuild_modes_manage_menu()
         self._notify(f"Cleared: {stats['time_entries']} entries, {stats['weeks']} weeks. Modes reset: {stats['modes_reset']}")
 
     def export_database(self):
@@ -716,7 +678,6 @@ class TrayApp:
             models.initialize()
             self.tracker.active = None
             self._rebuild_switch_menu()
-            self._rebuild_modes_manage_menu()
             if hasattr(self, 'projects_menu'):
                 self._rebuild_projects_menu()
             self._update_current_label()
