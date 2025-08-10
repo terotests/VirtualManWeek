@@ -15,6 +15,7 @@ from ..tracking.engine import Tracker
 from ..db import models
 from ..utils.constants import QUICK_MODES  # added import
 from .project_dialog import ProjectDialog  # new import
+from ..reporting import charts  # HTML-only chart export
 import shutil  # for DB export/import
 
 # Windows idle detection
@@ -456,210 +457,19 @@ class TrayApp:
         self.current_project_id = None
         self._apply_database(Path(fname))
 
-    # Charts: show mode distribution
+    # Charts: show mode distribution (HTML-only export)
     def show_mode_distribution(self):
-        data = models.mode_distribution()
-        if not data:
-            self._notify("No data yet")
-            return
-        max_val = max(int(r['total_active']) for r in data)
-        if max_val >= 3600:
-            divisor = 3600.0
-            unit = "Hours"
-        elif max_val >= 600:
-            divisor = 60.0
-            unit = "Minutes"
-        else:
-            divisor = 1.0
-            unit = "Seconds"
-        try:
-            from PySide6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QHBoxLayout
-            from PySide6.QtCharts import QtCharts
-            dlg = QDialog()
-            dlg.setWindowTitle(f"Mode Distribution (Active {unit})")
-            vlayout = QVBoxLayout(dlg)
-            chart = QtCharts.QChart()
-            series = QtCharts.QBarSeries()
-            categories = []
-            barset = QtCharts.QBarSet(f"Active {unit}")
-            for row in data:
-                categories.append(row['mode'])
-                scaled = float(row['total_active']) / divisor
-                barset << scaled
-            series.append(barset)
-            chart.addSeries(series)
-            axis_x = QtCharts.QBarCategoryAxis()
-            axis_x.append(categories)
-            chart.addAxis(axis_x, Qt.AlignBottom)
-            series.attachAxis(axis_x)
-            axis_y = QtCharts.QValueAxis()
-            axis_y.setTitleText(unit)
-            chart.addAxis(axis_y, Qt.AlignLeft)
-            series.attachAxis(axis_y)
-            chart.setTitle(f"Mode Distribution (Active {unit})")
-            chart.legend().setVisible(True)
-            chart.legend().setAlignment(Qt.AlignBottom)
-            view = QtCharts.QChartView(chart)
-            view.setRenderHint(QPainter.Antialiasing)
-            vlayout.addWidget(view)
-            # export button
-            hl = QHBoxLayout()
-            export_btn = QPushButton("Export HTML…")
-            def do_export():
-                path = self._select_save_path("Save Chart HTML", "mode_distribution.html", "HTML Files (*.html);;All Files (*.*)")
-                if not path:
-                    return
-                try:
-                    self._write_chart_html(path, data, divisor, unit, max_val)
-                    self._notify(f"Chart saved: {path}")
-                except Exception as e:
-                    self._notify(f"Export failed: {e}")
-            export_btn.clicked.connect(do_export)
-            hl.addWidget(export_btn)
-            vlayout.addLayout(hl)
-            dlg.resize(780, 520)
-            dlg.exec()
-            return
-        except Exception:
-            # fall back to direct HTML
-            pass
-        path = self._select_save_path("Save Chart HTML", "mode_distribution.html", "HTML Files (*.html);;All Files (*.*)")
+        path = self._select_save_path(
+            "Save Chart HTML", "mode_distribution.html", "HTML Files (*.html);;All Files (*.*)"
+        )
         if not path:
             return
         try:
-            self._write_chart_html(path, data, divisor, unit, max_val)
+            charts.export_mode_distribution_html_to(path)
             webbrowser.open(path.as_uri())
-            self._notify(f"Chart opened: {path} (unit: {unit})")
+            self._notify(f"Chart exported to {path}")
         except Exception as e:
             self._notify(f"Chart export failed: {e}")
-
-    # Helper: write chart HTML with details
-    def _write_chart_html(self, html_path: Path, data, divisor: float, unit: str, max_val: int):
-        labels = [r['mode'] for r in data]
-        raw_values = [int(r['total_active']) for r in data]
-        values = [round(v / divisor, 2 if unit == 'Hours' else 1 if unit == 'Minutes' else 0) for v in raw_values]
-        per_mode_tables = []
-        daily_tables = []
-        try:
-            import html as _html
-            with models.connect() as conn:
-                cur = conn.cursor()
-                # Per-mode details
-                for mode in labels:
-                    cur.execute(
-                        "SELECT date, start_ts, end_ts, active_seconds, idle_seconds, description FROM time_entries WHERE mode_label=? ORDER BY active_seconds DESC, start_ts DESC LIMIT 200",
-                        (mode,),
-                    )
-                    rows = cur.fetchall()
-                    if not rows:
-                        continue
-                    def _fmt(sec: int) -> str:
-                        if sec >= 3600:
-                            return f"{sec/3600:.2f}h"
-                        if sec >= 60:
-                            return f"{sec/60:.1f}m"
-                        return f"{sec}s"
-                    def _fmt_dt(ts: int) -> str:
-                        try:
-                            return datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
-                        except Exception:
-                            return str(ts)
-                    row_html_parts = []
-                    for r in rows:
-                        desc = r["description"] or ""
-                        desc = _html.escape(desc).replace('\n', '<br/>')
-                        dt_str = _fmt_dt(r['start_ts'])
-                        active_fmt = _fmt(r['active_seconds'])
-                        idle_fmt = _fmt(r['idle_seconds']) if r['idle_seconds'] else ''
-                        total_fmt = _fmt(r['active_seconds'] + (r['idle_seconds'] or 0))
-                        row_html_parts.append(
-                            f"<tr><td>{dt_str}</td><td class='num'>{active_fmt}</td><td class='num'>{idle_fmt}</td><td class='num'>{total_fmt}</td><td class='desc'>{desc}</td></tr>"
-                        )
-                    table_html = (
-                        f"<h4>{_html.escape(mode)}</h4>"
-                        "<table class='mode'><thead><tr><th>Date/Start Time</th><th>Active</th><th>Idle</th><th>Total</th><th>Description</th></tr></thead><tbody>"
-                        + "".join(row_html_parts)
-                        + "</tbody></table>"
-                    )
-                    per_mode_tables.append(table_html)
-                # Daily timeline
-                cur.execute(
-                    "SELECT date, start_ts, active_seconds, idle_seconds, mode_label, description FROM time_entries ORDER BY date ASC, start_ts ASC LIMIT 2000"
-                )
-                daily_rows = cur.fetchall()
-                if daily_rows:
-                    from collections import defaultdict
-                    grouped = defaultdict(list)
-                    for r in daily_rows:
-                        grouped[r['date']].append(r)
-                    def _fmt_short(sec: int) -> str:
-                        if sec >= 3600:
-                            return f"{sec/3600:.2f}h"
-                        if sec >= 60:
-                            return f"{sec/60:.1f}m"
-                        return f"{sec}s"
-                    for d in sorted(grouped.keys()):
-                        entries = grouped[d]
-                        try:
-                            weekday = datetime.strptime(d, '%Y-%m-%d').strftime('%A')
-                        except Exception:
-                            weekday = d
-                        row_parts = []
-                        for r in entries:
-                            t_str = datetime.fromtimestamp(r['start_ts']).strftime('%H:%M:%S') if r['start_ts'] else ''
-                            desc = (r['description'] or '').replace('\n', ' ')
-                            desc = _html.escape(desc)
-                            active_fmt = _fmt_short(r['active_seconds'])
-                            idle_fmt = _fmt_short(r['idle_seconds']) if r['idle_seconds'] else ''
-                            total_fmt = _fmt_short(r['active_seconds'] + (r['idle_seconds'] or 0))
-                            row_parts.append(
-                                f"<tr><td>{t_str}</td><td>{_html.escape(r['mode_label'])}</td><td class='num'>{active_fmt}</td><td class='num'>{idle_fmt}</td><td class='num'>{total_fmt}</td><td class='desc'>{desc}</td></tr>"
-                            )
-                        daily_tables.append(
-                            f"<h4>{weekday} {d}</h4><table class='mode'><thead><tr><th>Start</th><th>Mode</th><th>Active</th><th>Idle</th><th>Total</th><th>Description</th></tr></thead><tbody>{''.join(row_parts)}</tbody></table>"
-                        )
-        except Exception as e:  # pragma: no cover
-            per_mode_tables.append(f"<p><em>Detail section failed: {e}</em></p>")
-        detail_section = "\n".join(per_mode_tables) if per_mode_tables else "<p><em>No detailed entries.</em></p>"
-        daily_section = "\n".join(daily_tables) if daily_tables else "<p><em>No daily entries.</em></p>"
-        html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'/><title>Mode Distribution</title>
-<style>
-body{{font-family:Segoe UI,Arial,sans-serif;margin:24px;background:#f9f9fb;color:#222}}
-h2{{margin-top:0}}
-#meta{{font-size:12px;color:#555;margin-bottom:12px}}
-canvas{{border:1px solid #ddd;background:#fff}}
-section.details h3, section.daily h3{{margin-top:40px;border-bottom:2px solid #0A4F9C;padding-bottom:4px}}
-table.mode{{border-collapse:collapse;margin:12px 0 28px 0;width:100%;background:#fff;font-size:13px}}
-table.mode th,table.mode td{{border:1px solid #ddd;padding:4px 6px;vertical-align:top}}
-table.mode th{{background:#0A4F9C;color:#fff;text-align:left}}
-.num{{text-align:right;white-space:nowrap}}
-.desc{{max-width:640px;}}
-h4{{margin:28px 0 6px 0;color:#0A4F9C}}
-</style>
-<script src='https://cdn.jsdelivr.net/npm/chart.js'></script></head><body>
-<h2>Mode Distribution (Active {unit})</h2>
-<div id='meta'>Generated at {time.strftime('%Y-%m-%d %H:%M:%S')} &middot; Max raw seconds: {max_val}</div>
-<canvas id='c' width='1000' height='500'></canvas>
-<script>
-const labels = {labels};
-const dataVals = {values};
-const unit = '{unit}';
-new Chart(document.getElementById('c').getContext('2d'), {{
-  type: 'bar',
-  data: {{ labels: labels, datasets: [{{ label: 'Active ' + unit, data: dataVals, backgroundColor: '#0A4F9C'}}] }},
-  options: {{ indexAxis: 'x', responsive: false, plugins: {{ legend: {{ position: 'bottom' }}, tooltip: {{ callbacks: {{ label: (ctx)=> ctx.parsed.y + ' ' + unit }} }} }}, scales: {{ y: {{ beginAtZero: true, title: {{ display:true, text: unit }} }} }} }}
-}});
-</script>
-<section class='daily'>
-<h3>Daily Timeline</h3>
-{daily_section}
-</section>
-<section class='details'>
-<h3>Detailed Entries (Per Mode)</h3>
-{detail_section}
-</section>
-</body></html>"""
-        html_path.write_text(html, encoding='utf-8')
 
     # Export: CSV of recent entries
     def export_week_csv(self):
