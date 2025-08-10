@@ -59,6 +59,7 @@ class TrayApp:
         self._active_icon = None
         self._idle_icon = None
         self._stopped_icon = None  # new stopped icon
+        self._last_icon_minute = -1  # Track when we last updated the clock icon
         self._create_tray()
         self._setup_poll_timer()
         # Start with default project none and Idle mode
@@ -119,50 +120,77 @@ class TrayApp:
             return
 
     def _gen_clock_icon(self, bg: QColor, hand: QColor, text_color: QColor, outline: QColor = QColor("#222")) -> QIcon:
-        """Generate a classic analog clock style icon with tiny VM monogram."""
+        """Generate a clock icon with hands showing the current time."""
+        import math
+        from datetime import datetime
+        
         size = 32
         pm = QPixmap(size, size)
         pm.fill(QColor(0, 0, 0, 0))
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing, True)
+        
         # Outer circle
         p.setBrush(bg)
         p.setPen(QPen(outline, 2))
         p.drawEllipse(1, 1, size - 2, size - 2)
         center = size // 2
-        # Ticks (12 / 3 / 6 / 9)
+        
+        # Hour markers (12, 3, 6, 9)
         p.setPen(QPen(hand, 2))
-        for dx, dy in [(0,-12),(12,0),(0,12),(-12,0)]:
-            p.drawPoint(center + dx//2, center + dy//2)
-        # Hands (classic 10:10)
-        p.setPen(QPen(hand, 3, ))
-        # Minute hand (up)
-        p.drawLine(center, center, center, center - 10)
-        # Hour hand (approx 10)
-        p.drawLine(center, center, center - 6, center - 2)
-        # VM monogram near bottom
-        p.setPen(QPen(text_color))
-        f = QFont("Segoe UI", 8, QFont.Bold)
-        p.setFont(f)
-        rect = QRect(0, center + 2, size, size - (center + 2))
-        p.drawText(rect, 0x84, "VM")  # AlignHCenter|AlignTop (0x84)
+        for hour in [12, 3, 6, 9]:
+            angle = math.radians((hour - 3) * 30)  # -3 to start from 12 o'clock
+            x = center + int(11 * math.cos(angle))
+            y = center + int(11 * math.sin(angle))
+            p.drawPoint(x, y)
+        
+        # Get current time
+        now = datetime.now()
+        hours = now.hour % 12
+        minutes = now.minute
+        
+        # Calculate hand angles (in radians, starting from 12 o'clock)
+        hour_angle = math.radians((hours + minutes / 60.0) * 30 - 90)
+        minute_angle = math.radians(minutes * 6 - 90)
+        
+        # Draw hour hand (shorter, thicker)
+        p.setPen(QPen(hand, 3))
+        hour_length = 7
+        hour_x = center + int(hour_length * math.cos(hour_angle))
+        hour_y = center + int(hour_length * math.sin(hour_angle))
+        p.drawLine(center, center, hour_x, hour_y)
+        
+        # Draw minute hand (longer, thinner)
+        p.setPen(QPen(hand, 2))
+        minute_length = 11
+        minute_x = center + int(minute_length * math.cos(minute_angle))
+        minute_y = center + int(minute_length * math.sin(minute_angle))
+        p.drawLine(center, center, minute_x, minute_y)
+        
+        # Center dot
+        p.setPen(QPen(hand, 1))
+        p.setBrush(hand)
+        p.drawEllipse(center - 1, center - 1, 2, 2)
+        
         p.end()
         return QIcon(pm)
 
     def _create_tray(self):
-        # Replaced palette: green active, yellow idle, red stopped
-        active_bg = QColor("#2E8B57")   # green
-        active_hand = QColor("#FFFFFF")
-        active_text = QColor("#FFFFFF")
-        idle_bg = QColor("#FFC107")     # yellow
-        idle_hand = QColor("#333333")
-        idle_text = QColor("#333333")
-        stopped_bg = QColor("#C0392B")  # red
-        stopped_hand = QColor("#FFFFFF")
-        stopped_text = QColor("#FFFFFF")
-        self._active_icon = self._gen_clock_icon(active_bg, active_hand, active_text)
-        self._idle_icon = self._gen_clock_icon(idle_bg, idle_hand, idle_text)
-        self._stopped_icon = self._gen_clock_icon(stopped_bg, stopped_hand, stopped_text)
+        # Color palette: green active, yellow idle, red stopped
+        self.active_bg = QColor("#2E8B57")   # green
+        self.active_hand = QColor("#FFFFFF")
+        self.active_text = QColor("#FFFFFF")
+        self.idle_bg = QColor("#FFC107")     # yellow
+        self.idle_hand = QColor("#333333")
+        self.idle_text = QColor("#333333")
+        self.stopped_bg = QColor("#C0392B")  # red
+        self.stopped_hand = QColor("#FFFFFF")
+        self.stopped_text = QColor("#FFFFFF")
+        
+        # Create initial icons (will be updated dynamically)
+        self._active_icon = self._gen_clock_icon(self.active_bg, self.active_hand, self.active_text)
+        self._idle_icon = self._gen_clock_icon(self.idle_bg, self.idle_hand, self.idle_text)
+        self._stopped_icon = self._gen_clock_icon(self.stopped_bg, self.stopped_hand, self.stopped_text)
         self.tray = QSystemTrayIcon(self._idle_icon, self.app)
         self.tray.activated.connect(self._on_tray_activated)  # left-click handler
         self.menu = QMenu()
@@ -369,12 +397,22 @@ class TrayApp:
                 self.stop_act.setText("Stopped")
 
     def _apply_icon(self, idle: bool = False, stopped: bool = False):
-        if stopped:
-            self.tray.setIcon(self._stopped_icon)
-        elif idle:
-            self.tray.setIcon(self._idle_icon)
-        else:
-            self.tray.setIcon(self._active_icon)
+        from datetime import datetime
+        
+        # Only update icon if the minute has changed (to avoid excessive redraws)
+        current_minute = datetime.now().minute
+        if current_minute != self._last_icon_minute:
+            self._last_icon_minute = current_minute
+            
+            # Regenerate icon with current time
+            if stopped:
+                icon = self._gen_clock_icon(self.stopped_bg, self.stopped_hand, self.stopped_text)
+            elif idle:
+                icon = self._gen_clock_icon(self.idle_bg, self.idle_hand, self.idle_text)
+            else:
+                icon = self._gen_clock_icon(self.active_bg, self.active_hand, self.active_text)
+            
+            self.tray.setIcon(icon)
 
     # Helper: save file dialog
     def _select_save_path(self, title: str, default_filename: str, filter_spec: str) -> Optional[Path]:
