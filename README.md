@@ -2,9 +2,11 @@
 
 Once in my early life there was a great Windows program called "Virtual Man Month", which was developed by a very productive programmer in our company using purely Win32 APIs at the time. It was working from the Windows tray Icon and eveyone in the company was logging their hours to it. It was a great tool which was used years in our small startup.
 
-This week I noticed I needed something similar, to avoid time consuming context switching and time logging using tools like Excel. This tool is not yet as production grade
+This week I noticed I needed something similar, to avoid time consuming context switching and time logging using tools like Excel.
 
-Lightweight Windows system tray time tracker with mode switching, idle detection, and comprehensive reporting.
+IMPRTANT! This tool is not yet as production grade. It uses **SQLite** database to store the data locally. So, if you use this, make backups of the data and modify the source code the way you want.
+
+So, what this is... basicly a Windows system tray time tracker with mode switching, idle detection, and a bit of reporting.
 
 ![VirtualManWeek Tray Interface](screenshot_tray.png)
 
@@ -19,6 +21,8 @@ So, what is going here?
 ![VirtualManWeek Tray Interface](screenshot_switch_mode.png)
 
 _The menu where you can switch the mode of working._
+
+**So this is not project tracking tool** this is mostly used to track where time is spent. To find issues in the process. But you could track also the time spent on the Projects, but the most important question this tool tries to answer is "Where did the time go?".
 
 ## About
 
