@@ -16,6 +16,14 @@ So, what is going here?
 2. **Project** optional metadata for each time entry
 3. **Mode** means what is the working intention, like "Meeting", or "Coffe break" or "Waiting for the Build" - to track how much time is spent on certain kind of activies.
 
+![VirtualManWeek Tray Interface](screenshot_switch_mode.png)
+
+_The menu where you can switch the mode of working._
+
+## About
+
+Few notes about the implementation: I am a professional programmer, but this implementation has been programmed mostly with help of **GPT-5 Preview** and **Claude Sonnet 4**. The original plan is described in the file ORIG.md, then the actual development plan before starting in the `PLAN.md`. Not all the features that were planned were implemented in the final version, for example Azure AD login.
+
 ## Usage
 
 From powershell:
@@ -69,9 +77,9 @@ This will launch the app in the dev mode, where you can also see the logs. Requi
 
 **Database Management:**
 
-- Admin → Create/Select Database : manage multiple databases
-- Admin → Export/Import Database : backup and restore functionality
-- Admin → Clear Logged Entries : reset data with confirmation
+- Database → Create/Select Database : manage multiple databases
+- Database → Export/Import Database : backup and restore functionality
+- Database → Clear Logged Entries : reset data with confirmation
 
 **Settings & Info:**
 

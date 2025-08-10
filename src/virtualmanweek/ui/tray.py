@@ -249,6 +249,28 @@ class TrayApp:
         p.end()
         return QIcon(pm)
 
+    def _create_stop_icon(self) -> QIcon:
+        """Create a custom stop icon that matches the current theme."""
+        size = 16
+        pm = QPixmap(size, size)
+        pm.fill(QColor(0, 0, 0, 0))  # Transparent background
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        
+        # Use theme-appropriate color
+        is_dark_theme = self._is_dark_theme()
+        icon_color = QColor("#FFFFFF") if is_dark_theme else QColor("#333333")
+        
+        # Draw a stop square (rectangle with slightly rounded corners)
+        margin = 3
+        rect_size = size - (margin * 2)
+        p.setBrush(icon_color)
+        p.setPen(QPen(icon_color, 1))
+        p.drawRoundedRect(margin, margin, rect_size, rect_size, 1, 1)
+        
+        p.end()
+        return QIcon(pm)
+
     def _create_tray(self):
         # Color palette: green active, yellow idle, red stopped
         self.active_bg = QColor("#2E8B57")   # green
@@ -278,6 +300,15 @@ class TrayApp:
         self.action_current = QAction("Current: Idle", self.menu)
         self.action_current.setEnabled(False)
         self.menu.addAction(self.action_current)
+
+        # Add Stop Tracking action right under Current with a custom stop icon
+        self.stop_act = QAction("Stop Tracking", self.menu)
+        # Create a custom stop icon that matches the theme
+        stop_icon = self._create_stop_icon()
+        self.stop_act.setIcon(stop_icon)
+        self.stop_act.triggered.connect(self.stop_tracking)
+        self.menu.addAction(self.stop_act)
+        
         self.menu.addSeparator()
 
         # Dynamic switch menu
@@ -303,8 +334,8 @@ class TrayApp:
         html_act.triggered.connect(self.show_mode_distribution)
         export_menu.addAction(html_act)
 
-        # Admin menu
-        admin_menu = self.menu.addMenu("Admin")
+        # Database menu
+        admin_menu = self.menu.addMenu("Database")
         # New: database management first
         create_db_act = QAction("Create Database...", admin_menu)
         create_db_act.triggered.connect(self.create_database)
@@ -324,14 +355,12 @@ class TrayApp:
         import_db_act.triggered.connect(self.import_database)
         admin_menu.addAction(import_db_act)
 
+        # Add separator before Exit
+        self.menu.addSeparator()
+        
         quit_act = QAction("Exit", self.menu)
         quit_act.triggered.connect(self.quit)
         self.menu.addAction(quit_act)
-
-        # Add Stop Tracking action (toggle style)
-        self.stop_act = QAction("Stop Tracking", self.menu)
-        self.stop_act.triggered.connect(self.stop_tracking)
-        self.menu.addAction(self.stop_act)
 
         self.tray.setContextMenu(self.menu)
         
@@ -484,12 +513,12 @@ class TrayApp:
                 self.stop_act.setEnabled(False)
                 self.stop_act.setText("Stopped")
 
-    def _apply_icon(self, idle: bool = False, stopped: bool = False):
+    def _apply_icon(self, idle: bool = False, stopped: bool = False, force_update: bool = False):
         from datetime import datetime
         
-        # Only update icon if the minute has changed (to avoid excessive redraws)
+        # Only update icon if the minute has changed (to avoid excessive redraws) OR if forced
         current_minute = datetime.now().minute
-        if current_minute != self._last_icon_minute:
+        if force_update or current_minute != self._last_icon_minute:
             self._last_icon_minute = current_minute
             
             # Regenerate icon with current time
@@ -537,6 +566,8 @@ class TrayApp:
                 if hasattr(self, 'projects_menu'):
                     self._rebuild_projects_menu()
                 self._update_current_label()  # This will update database info too
+                # Force icon update since tracker is now stopped after database switch
+                self._apply_icon(stopped=True, force_update=True)
             if notify:
                 self._notify(f"Using database: {path}")
         except Exception as e:
@@ -642,6 +673,8 @@ class TrayApp:
         except Exception:
             pass
         self._update_current_label()
+        # Force icon update immediately when stopping
+        self._apply_icon(stopped=True, force_update=True)
 
     def switch_mode(self, mode_label: str):
         dialog = ModeSwitchDialog(mode_label)
@@ -656,6 +689,9 @@ class TrayApp:
         else:
             self.tracker.switch(project_id=proj, mode_label=mode_label, description=description, manual_seconds=manual_seconds)
         self._update_current_label()
+        # Force icon update immediately when switching modes
+        if self.tracker.active:
+            self._apply_icon(idle=(self.tracker.active.idle_accum > 0 or self.tracker.active.mode_label.lower()=="idle"), force_update=True)
 
     def _delete_mode(self, mode_id: int):
         # First get the mode name for the confirmation dialog
@@ -712,6 +748,8 @@ class TrayApp:
         if self.tracker.active:
             mode = self.tracker.active.mode_label
             self.tracker.switch(project_id=None, mode_label=mode, description=None)
+            # Force icon update when switching projects
+            self._apply_icon(idle=(self.tracker.active.idle_accum > 0 or self.tracker.active.mode_label.lower()=="idle"), force_update=True)
         self._update_current_label()
 
     def select_project(self, project_id: int):
@@ -719,6 +757,8 @@ class TrayApp:
         if self.tracker.active:
             mode = self.tracker.active.mode_label
             self.tracker.switch(project_id=project_id, mode_label=mode, description=None)
+            # Force icon update when switching projects
+            self._apply_icon(idle=(self.tracker.active.idle_accum > 0 or self.tracker.active.mode_label.lower()=="idle"), force_update=True)
         self._update_current_label()
 
     def reset_database(self):
@@ -769,45 +809,53 @@ class TrayApp:
             self._notify(f"Export failed: {e}")
 
     def import_database(self):
-        try:
-            cur_path = models.db_path()
-        except Exception as e:
-            self._notify(f"DB path error: {e}")
-            return
+        """Import a database by copying it to AppData and switching to it."""
+        # Select the database file to import
         fname, _ = QFileDialog.getOpenFileName(
             None,
             "Select Database to Import",
-            str(cur_path.parent),
+            str(Path.home()),  # Start from user's home directory
             "SQLite DB (*.sqlite3 *.db *.sqlite);;All Files (*.*)"
         )
         if not fname:
             return
+        
         src = Path(fname)
         if not src.exists():
             self._notify("Selected file missing")
             return
-        resp = QMessageBox.question(
-            None,
-            "Confirm Import",
-            "Importing will overwrite the existing database and all current logged data will be lost.\n\nProceed?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if resp != QMessageBox.Yes:
-            return
+        
+        # Destination will be in AppData with the same filename
+        appdata_dir = appdata_root()
+        dest = appdata_dir / src.name
+        
+        # Check if destination already exists
+        if dest.exists():
+            resp = QMessageBox.question(
+                None,
+                "Database Already Exists",
+                f"A database named '{src.name}' already exists in your AppData folder.\n\nDo you want to overwrite it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if resp != QMessageBox.Yes:
+                return
+        
         try:
+            # Flush current tracker before switching
             self.tracker.flush_all()
         except Exception:
             pass
+        
         try:
-            shutil.copy2(src, cur_path)
-            models.initialize()
-            self.tracker.active = None
-            self._rebuild_switch_menu()
-            if hasattr(self, 'projects_menu'):
-                self._rebuild_projects_menu()
-            self._update_current_label()
-            self._notify("Database imported successfully")
+            # Copy the database to AppData
+            shutil.copy2(src, dest)
+            
+            # Switch to the imported database (don't overwrite current, just switch)
+            self.current_project_id = None
+            self._apply_database(dest, notify=False)
+            
+            self._notify(f"Database '{src.name}' imported and switched to successfully")
         except Exception as e:
             self._notify(f"Import failed: {e}")
 
