@@ -92,6 +92,40 @@ class Tracker:
             # Not in a recovery scenario
             self.active_recovery_start = None
 
+    def _check_24_hour_limit(self) -> bool:
+        """Check if today's work time has reached 24 hours. If so, stop tracking.
+        Returns True if tracking was stopped due to limit."""
+        from datetime import datetime
+        
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        with models.connect() as conn:
+            cur = conn.cursor()
+            # Sum active_seconds and manual_seconds, but exclude idle_seconds
+            # Also exclude entries where mode_label is 'Idle' (case-insensitive)
+            cur.execute("""
+                SELECT COALESCE(SUM(active_seconds), 0) + COALESCE(SUM(manual_seconds), 0)
+                FROM time_entries 
+                WHERE date = ? AND LOWER(mode_label) != 'idle'
+            """, (today,))
+            result = cur.fetchone()
+            today_work_seconds = result[0] if result and result[0] else 0
+        
+        # Add current session time if active
+        if self.active:
+            now = int(time.time())
+            session_active_seconds = now - self.active.start_ts - self.active.idle_accum
+            today_work_seconds += max(0, session_active_seconds)
+        
+        # Check if we've reached 24 hours (86400 seconds)
+        if today_work_seconds >= 24 * 3600:
+            logger.warning("24-hour work limit reached - stopping tracking")
+            if self.active:
+                self._close(int(time.time()))
+            return True
+        
+        return False
+
     def poll(self, idle_secs: Optional[int] = None):
         """Periodic maintenance.
 
@@ -100,6 +134,11 @@ class Tracker:
         """
         if not self.active:
             return
+        
+        # Check for 24-hour work limit
+        if self._check_24_hour_limit():
+            return
+            
         now = int(time.time())
         sess = self.active
         idle_threshold = self.settings.idle_timeout_seconds

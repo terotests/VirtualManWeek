@@ -1,10 +1,7 @@
-The default nodes below could have also "Refinement", "Coding", "Testing" "Documentation"
+Couple of issues noticed:
 
-DEFAULT_QUICK_MODES = [
-"Lunch",
-"Meeting",
-"Break",
-"Coffee",
-"Waiting for Build",
-"Waiting for Tests",
-]
+- When I switch mode, the tray icon is not automatically re-rendered so it stays in the idle color ( yellow ) some time.
+
+- The menu item "Stop Tracking" menu item should be just under the "Current:" and maybe if possible of icon about "Stop"
+
+- The menu item "Exit" should have a separator before it.

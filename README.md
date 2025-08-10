@@ -1,40 +1,43 @@
 # VirtualManWeek
 
+Once in my early life there was a great Windows program called "Virtual Man Month", which was developed by a very productive programmer in our company using purely Win32 APIs at the time. It was working from the Windows tray Icon and eveyone in the company was logging their hours to it. It was a great tool, but also a bit tedious because it recorded just the time you were at the machine. Fortunately, you could also add time manually there, which was pretty important.
+
+This week I noticed I needed something similar, to avoid time consuming context switching and time logging using tools like Excel. This tool is not yet as production grade
+
 Lightweight Windows system tray time tracker with mode switching, idle detection, and comprehensive reporting.
+
+![VirtualManWeek Tray Interface](screenshot_tray.png)
+
+_The system tray icon showing the current time, outside the cirle showing the time worked today and hover showing the detailed summary._
+
+So, what is going here?
+
+1. **Database** means the main database, could represent a customer, testing database or backup. Each database contains full set of time entries.
+2. **Project** optional metadata for each time entry
+3. **Mode** means what is the working intention, like "Meeting", or "Coffe break" or "Waiting for the Build" - to track how much time is spent on certain kind of activies.
+
+## Usage
+
+From powershell:
+
+```
+.\scripts\dev.ps1
+```
+
+This will launch the app in the dev mode, where you can also see the logs. Requires Python to be installed.
 
 ## Key Features
 
-**Core Tracking:**
-- System tray UI with visual status (green=active, yellow=idle, red=stopped)
-- Quick mode switching with predefined and custom modes
-- Automatic idle detection and sleep/hibernate handling
-- Manual time entry with "Fill Idle Time" functionality
-- Project and mode management with full CRUD operations
-
-**Database & Data:**
-- Multiple database support with easy switching
-- Automatic initialization of default modes per database
-- Export/import databases, clear data with confirmation
-- Robust data integrity with orphaned mode detection
-
-**Reporting & Export:**
-- HTML reports with Chart.js visualizations (mode distribution, daily timeline)
-- CSV export of time entries
-- Standardized export filenames (WMW_DatabaseName_WeekDate.ext)
-- Consistent time formatting throughout (e.g., "2h 15min", "45s", "1min 30s")
-
-**User Experience:**
-- Streamlined menu structure (combined Export submenu, Edit modes via Switch Mode)
-- Enhanced tooltips showing current database, project, and mode
-- Confirmation dialogs for destructive actions
-- Manual time adjustment for retrospective logging
+- 🖥️ System tray UI with visual status (green=active, yellow=idle, red=stopped)
+- 😴 Automatic idle detection and sleep/hibernate handling
+- ✍️ Manual time entry with "Fill Idle Time" functionality
+- 🗄️ Multiple database support ( SQLite )
+- 📊 HTML and CSV export of time entries
 
 ## Requirements
 
 - Windows 11 (Win10 likely works)
 - Python 3.11+ (for development / building)
-- PowerShell 5.1+ / 7+
-- (Optional) Inno Setup (ISCC.exe on PATH) to build installer
 
 ## Quick Start (Source)
 
@@ -49,21 +52,10 @@ Lightweight Windows system tray time tracker with mode switching, idle detection
    ```
 4. Tray icon appears (Idle = yellow, Active = green, Stopped = red). Left‑click to open menu.
 
-## Key Features
-
-- System tray UI (start on Idle, switch modes quickly)
-- Custom & quick modes (with optional description per switch)
-- Automatic idle detection (yellow) + recovery; sleep gap handling
-- Mode distribution chart (QtCharts fallback to HTML/Chart.js) + export
-- Detailed HTML report (daily timeline + per‑mode entries)
-- CSV export of recent entries
-- Project & mode management dialogs
-- Database export / import and safe clear (admin menu)
-- Portable ZIP or Windows installer packaging (PyInstaller + optional Inno Setup)
-
 ## Common Actions (Tray Menu)
 
 **Mode & Project Management:**
+
 - Switch Mode → [Mode List] : quickly switch to existing modes
 - Switch Mode → Edit... : open comprehensive mode management dialog
 - Set Idle : manually mark current activity as idle
@@ -71,48 +63,43 @@ Lightweight Windows system tray time tracker with mode switching, idle detection
 - Projects → Edit Projects... : manage projects (add/edit/archive)
 
 **Data Export:**
+
 - Export → CSV... : export time entries to CSV file
 - Export → HTML... : generate mode distribution charts and reports
 
 **Database Management:**
+
 - Admin → Create/Select Database : manage multiple databases
 - Admin → Export/Import Database : backup and restore functionality
 - Admin → Clear Logged Entries : reset data with confirmation
 
 **Settings & Info:**
+
 - Current database and project shown in tray tooltip and menu headers
 
-## Build Executable
+## Troubleshooting & Logs
 
-Clean folder build:
+The application maintains detailed action logs for debugging purposes. Log files are stored in:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Clean
+```
+%APPDATA%\VirtualManWeek\action.log
 ```
 
-One‑file exe (slower start):
+The logs include:
+
+- Session start/stop events with timestamps
+- Mode switching and project changes
+- Idle detection and recovery events
+- Database operations and errors
+- Sleep/wake detection and gap handling
+
+To view recent log entries:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Clean -OneFile
+Get-Content "$env:APPDATA\VirtualManWeek\action.log" | Select-Object -Last 20
 ```
 
-Run built app:
-
-```powershell
-./dist/VirtualManWeek.exe --tray
-```
-
-## Package (ZIP / Installer)
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/package.ps1 -Clean -OneFile
-```
-
-Outputs under `installer/`:
-
-- `VirtualManWeek-<version>.zip` (portable)
-- `VirtualManWeek-Setup-<version>.exe` (if ISCC.exe available)
-- `VirtualManWeek.iss` (generated script; customize if desired)
+Logs are automatically rotated (max 1MB per file, 5 backup files) to prevent excessive disk usage.
 
 ## Testing
 

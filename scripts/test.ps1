@@ -14,7 +14,7 @@ Set-Location $repoRoot
 
 $venvPath = Join-Path $repoRoot '.venv'
 if (-not (Test-Path $venvPath)) { Write-Error 'Virtual environment not found. Run scripts/setup.ps1 first.' }
-$activate = Join-Path $venvPath 'Scripts' 'Activate.ps1'
+$activate = Join-Path (Join-Path $venvPath 'Scripts') 'Activate.ps1'
 . $activate
 
 if (-not (Get-Command pytest -ErrorAction SilentlyContinue)) {

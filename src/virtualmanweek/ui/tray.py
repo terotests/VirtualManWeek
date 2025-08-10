@@ -119,8 +119,39 @@ class TrayApp:
             self._apply_database(path, notify=False)
             return
 
+    def _get_today_work_seconds(self) -> int:
+        """Get total active seconds worked today (excluding idle time)."""
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        with models.connect() as conn:
+            cur = conn.cursor()
+            # Sum active_seconds and manual_seconds, but exclude idle_seconds
+            # Also exclude entries where mode_label is 'Idle' (case-insensitive)
+            cur.execute("""
+                SELECT COALESCE(SUM(active_seconds), 0) + COALESCE(SUM(manual_seconds), 0)
+                FROM time_entries 
+                WHERE date = ? AND LOWER(mode_label) != 'idle'
+            """, (today,))
+            result = cur.fetchone()
+            return result[0] if result and result[0] else 0
+
+    def _is_dark_theme(self) -> bool:
+        """Detect if the system is using a dark theme."""
+        try:
+            # On Windows, check registry for dark theme preference
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
+                               r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            winreg.CloseKey(key)
+            return value == 0  # 0 = dark theme, 1 = light theme
+        except Exception:
+            # Fallback: assume light theme if detection fails
+            return False
+
     def _gen_clock_icon(self, bg: QColor, hand: QColor, text_color: QColor, outline: QColor = QColor("#222")) -> QIcon:
-        """Generate a clock icon with hands showing the current time."""
+        """Generate a clock icon with hands showing the current time and work progress."""
         import math
         from datetime import datetime
         
@@ -130,18 +161,61 @@ class TrayApp:
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing, True)
         
-        # Outer circle
-        p.setBrush(bg)
-        p.setPen(QPen(outline, 2))
-        p.drawEllipse(1, 1, size - 2, size - 2)
         center = size // 2
         
-        # Hour markers (12, 3, 6, 9)
+        # Get today's work time for progress indicator
+        today_work_seconds = self._get_today_work_seconds()
+        today_work_minutes = today_work_seconds / 60.0
+        today_work_hours = today_work_minutes / 60.0
+        
+        # Detect system theme and set progress color accordingly
+        is_dark_theme = self._is_dark_theme()
+        if today_work_hours >= 12:
+            progress_color = QColor("#FF4444")  # Red for overtime (same for both themes)
+        else:
+            # Use white for dark theme, black for light theme
+            progress_color = QColor("#FFFFFF") if is_dark_theme else QColor("#000000")
+        
+        # Don't track beyond 24 hours
+        if today_work_hours >= 24:
+            today_work_minutes = 24 * 60
+            today_work_hours = 24
+        
+        # Draw work progress arcs
+        if today_work_hours >= 1:
+            # Hour progress markers - 2 pixels thick, drawn close to the clock for visibility
+            clock_radius = (size - 6) // 2  # Clock face radius - 2 pixels smaller than before
+            progress_radius = clock_radius + 3  # Progress arcs 3 pixels outside the clock (reduced from 6)
+            hour_rect = QRect(center - progress_radius, center - progress_radius,
+                            progress_radius * 2, progress_radius * 2)
+            
+            # Draw hour markers - 12 divisions (30 degrees each)
+            completed_hours = int(today_work_hours)
+            for hour in range(1, min(completed_hours + 1, 13)):  # Max 12 hours for first cycle
+                # Each hour is 30 degrees (360/12)
+                hour_angle = hour * 30
+                p.setPen(QPen(progress_color, 2))  # 2 pixels thick - reduced from 8
+                p.drawArc(hour_rect, (90 - hour_angle) * 16, -30 * 16)
+            
+            # If we're in the second 12-hour cycle (overtime), draw additional markers
+            if today_work_hours >= 12:
+                overtime_hours = int(today_work_hours - 12)
+                for hour in range(1, min(overtime_hours + 1, 13)):
+                    hour_angle = hour * 30
+                    p.setPen(QPen(progress_color, 2))  # 2 pixels thick for overtime
+                    p.drawArc(hour_rect, (90 - hour_angle) * 16, -30 * 16)
+        
+        # Draw main clock circle (2 pixels smaller than before)
+        p.setBrush(bg)
+        p.setPen(QPen(outline, 2))
+        p.drawEllipse(3, 3, size - 6, size - 6)
+        
+        # Hour markers (12, 3, 6, 9) - adjusted for smaller clock
         p.setPen(QPen(hand, 2))
         for hour in [12, 3, 6, 9]:
             angle = math.radians((hour - 3) * 30)  # -3 to start from 12 o'clock
-            x = center + int(11 * math.cos(angle))
-            y = center + int(11 * math.sin(angle))
+            x = center + int(9 * math.cos(angle))  # Reduced from 11 to 9 for smaller clock
+            y = center + int(9 * math.sin(angle))  # Reduced from 11 to 9 for smaller clock
             p.drawPoint(x, y)
         
         # Get current time
@@ -153,16 +227,16 @@ class TrayApp:
         hour_angle = math.radians((hours + minutes / 60.0) * 30 - 90)
         minute_angle = math.radians(minutes * 6 - 90)
         
-        # Draw hour hand (shorter, thicker)
+        # Draw hour hand (shorter, thicker) - adjusted for smaller clock
         p.setPen(QPen(hand, 3))
-        hour_length = 7
+        hour_length = 5  # Reduced from 7 to 5 for smaller clock
         hour_x = center + int(hour_length * math.cos(hour_angle))
         hour_y = center + int(hour_length * math.sin(hour_angle))
         p.drawLine(center, center, hour_x, hour_y)
         
-        # Draw minute hand (longer, thinner)
+        # Draw minute hand (longer, thinner) - adjusted for smaller clock
         p.setPen(QPen(hand, 2))
-        minute_length = 11
+        minute_length = 9  # Reduced from 11 to 9 for smaller clock
         minute_x = center + int(minute_length * math.cos(minute_angle))
         minute_y = center + int(minute_length * math.sin(minute_angle))
         p.drawLine(center, center, minute_x, minute_y)
@@ -260,7 +334,12 @@ class TrayApp:
         self.menu.addAction(self.stop_act)
 
         self.tray.setContextMenu(self.menu)
-        self.tray.setToolTip("VirtualManWeek")
+        
+        # Set initial tooltip with today's work time
+        today_work_seconds = self._get_today_work_seconds()
+        today_work_str = _fmt_time_short(today_work_seconds)
+        self.tray.setToolTip(f"VirtualManWeek\nToday's Total: {today_work_str}")
+        
         self.tray.show()
 
     def _rebuild_switch_menu(self):
@@ -378,8 +457,12 @@ class TrayApp:
             elapsed_str = self._format_elapsed(elapsed)
             self.action_current.setText(f"Current: {sess.mode_label}{idle_flag} / P:{proj} / {elapsed_str}")
             
-            # Enhanced tooltip with database and project info
-            tooltip_text = f"{sess.mode_label}{idle_flag} - {elapsed_str}\nDB: {db_name}\nProject: {proj}"
+            # Get today's total work time for tooltip
+            today_work_seconds = self._get_today_work_seconds()
+            today_work_str = _fmt_time_short(today_work_seconds)
+            
+            # Enhanced tooltip with database, project info, and today's total
+            tooltip_text = f"{sess.mode_label}{idle_flag} - {elapsed_str}\nToday's Total: {today_work_str}\nDB: {db_name}\nProject: {proj}"
             self.tray.setToolTip(tooltip_text)
             
             self._apply_icon(idle=(sess.idle_accum > 0 or sess.mode_label.lower()=="idle"))
@@ -389,7 +472,12 @@ class TrayApp:
         else:
             proj = self._project_display(self.current_project_id)
             self.action_current.setText("Current: (stopped)")
-            tooltip_text = f"Tracking stopped\nDB: {db_name}\nProject: {proj}"
+            
+            # Get today's total work time for tooltip
+            today_work_seconds = self._get_today_work_seconds()
+            today_work_str = _fmt_time_short(today_work_seconds)
+            
+            tooltip_text = f"Tracking stopped\nToday's Total: {today_work_str}\nDB: {db_name}\nProject: {proj}"
             self.tray.setToolTip(tooltip_text)
             self._apply_icon(stopped=True)
             if self.stop_act:

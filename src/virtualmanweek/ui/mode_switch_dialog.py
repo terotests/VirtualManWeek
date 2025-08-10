@@ -42,7 +42,7 @@ class ModeSwitchDialog(QDialog):
         self.hours_spin = QSpinBox(self)
         self.hours_spin.setRange(0, 23)
         self.hours_spin.setValue(0)
-        self.hours_spin.setMinimumWidth(60)
+        self.hours_spin.setMinimumWidth(80)  # Increased from 60 to 80 pixels
         self.hours_spin.setSuffix(" h")
         time_row.addWidget(self.hours_spin)
         
@@ -50,7 +50,7 @@ class ModeSwitchDialog(QDialog):
         self.minutes_spin = QSpinBox(self)
         self.minutes_spin.setRange(0, 59)
         self.minutes_spin.setValue(0)
-        self.minutes_spin.setMinimumWidth(60)
+        self.minutes_spin.setMinimumWidth(80)  # Increased from 60 to 80 pixels
         self.minutes_spin.setSuffix(" m")
         time_row.addWidget(self.minutes_spin)
         
