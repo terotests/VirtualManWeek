@@ -24,6 +24,8 @@ _The menu where you can switch the mode of working._
 
 Few notes about the implementation: I am a professional programmer, but this implementation has been programmed mostly with help of **GPT-5 Preview** and **Claude Sonnet 4**. The original plan is described in the file ORIG.md, then the actual development plan before starting in the `PLAN.md`. Not all the features that were planned were implemented in the final version, for example Azure AD login.
 
+> **DISCLAIMER** At this point I am not an experienced Python programmer so you might see some weird things in the codebase, use at own risk and make backups of the DB regularly.
+
 ## Usage
 
 From powershell:
