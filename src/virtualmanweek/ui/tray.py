@@ -164,6 +164,12 @@ class TrayApp:
         self.tray.activated.connect(self._on_tray_activated)  # left-click handler
         self.menu = QMenu()
 
+        # Database info at the top
+        self.action_database = QAction("", self.menu)
+        self.action_database.setEnabled(False)
+        self.menu.addAction(self.action_database)
+        self.menu.addSeparator()
+
         self.action_current = QAction("Current: Idle", self.menu)
         self.action_current.setEnabled(False)
         self.menu.addAction(self.action_current)
@@ -334,6 +340,14 @@ class TrayApp:
             return "None"
         return self._project_label_by_id.get(pid, str(pid))
 
+    def _get_database_name(self) -> str:
+        """Get a short display name for the current database"""
+        try:
+            db_path = models.db_path()
+            return db_path.name
+        except Exception:
+            return "Unknown"
+
     def _setup_poll_timer(self):
         self.timer = QTimer()
         self.timer.setInterval(1000)  # 1s for live elapsed display
@@ -362,6 +376,10 @@ class TrayApp:
         self._update_current_label()
 
     def _update_current_label(self):
+        # Update database info
+        db_name = self._get_database_name()
+        self.action_database.setText(f"Database: {db_name}")
+        
         if self.tracker.active:
             sess = self.tracker.active
             idle_flag = " (idle)" if sess.idle_accum > 0 or sess.mode_label.lower() == "idle" else ""
@@ -369,14 +387,20 @@ class TrayApp:
             elapsed = int(time.time()) - sess.start_ts
             elapsed_str = self._format_elapsed(elapsed)
             self.action_current.setText(f"Current: {sess.mode_label}{idle_flag} / P:{proj} / {elapsed_str}")
-            self.tray.setToolTip(f"{sess.mode_label}{idle_flag} - {elapsed_str}")
+            
+            # Enhanced tooltip with database and project info
+            tooltip_text = f"{sess.mode_label}{idle_flag} - {elapsed_str}\nDB: {db_name}\nProject: {proj}"
+            self.tray.setToolTip(tooltip_text)
+            
             self._apply_icon(idle=(sess.idle_accum > 0 or sess.mode_label.lower()=="idle"))
             if self.stop_act:
                 self.stop_act.setEnabled(True)
                 self.stop_act.setText("Stop Tracking")
         else:
+            proj = self._project_display(self.current_project_id)
             self.action_current.setText("Current: (stopped)")
-            self.tray.setToolTip("Tracking stopped")
+            tooltip_text = f"Tracking stopped\nDB: {db_name}\nProject: {proj}"
+            self.tray.setToolTip(tooltip_text)
             self._apply_icon(stopped=True)
             if self.stop_act:
                 self.stop_act.setEnabled(False)
@@ -423,7 +447,7 @@ class TrayApp:
                 self._rebuild_modes_manage_menu()
                 if hasattr(self, 'projects_menu'):
                     self._rebuild_projects_menu()
-                self._update_current_label()
+                self._update_current_label()  # This will update database info too
             if notify:
                 self._notify(f"Using database: {path}")
         except Exception as e:
@@ -525,12 +549,39 @@ class TrayApp:
         self._update_current_label()
 
     def _delete_mode(self, mode_id: int):
+        # First get the mode name for the confirmation dialog
         try:
+            all_modes = models.list_modes()
+            mode_name = None
+            for m in all_modes:
+                if m['id'] == mode_id:
+                    mode_name = m['label']
+                    break
+            
+            if not mode_name:
+                self._notify("Mode not found")
+                return
+                
+            # Show confirmation dialog
+            resp = QMessageBox.question(
+                None,
+                "Confirm Mode Deletion",
+                f"Are you sure you want to delete the mode '{mode_name}'?\n\nThis will remove the mode from the list but won't affect existing time entries.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            
+            if resp != QMessageBox.Yes:
+                return
+                
+            # Proceed with deletion
             models.delete_mode(mode_id)
+            self._notify(f"Mode '{mode_name}' removed")
+            
         except Exception as e:
             self._notify(f"Delete failed: {e}")
             return
-        self._notify("Mode removed")
+            
         self._rebuild_switch_menu()
         self._rebuild_modes_manage_menu()
 
