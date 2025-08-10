@@ -1,6 +1,33 @@
 # VirtualManWeek
 
-Lightweight Windows system tray time tracker with mode switching, idle/sleep handling, statistics and export.
+Lightweight Windows system tray time tracker with mode switching, idle detection, and comprehensive reporting.
+
+## Key Features
+
+**Core Tracking:**
+- System tray UI with visual status (green=active, yellow=idle, red=stopped)
+- Quick mode switching with predefined and custom modes
+- Automatic idle detection and sleep/hibernate handling
+- Manual time entry with "Fill Idle Time" functionality
+- Project and mode management with full CRUD operations
+
+**Database & Data:**
+- Multiple database support with easy switching
+- Automatic initialization of default modes per database
+- Export/import databases, clear data with confirmation
+- Robust data integrity with orphaned mode detection
+
+**Reporting & Export:**
+- HTML reports with Chart.js visualizations (mode distribution, daily timeline)
+- CSV export of time entries
+- Standardized export filenames (WMW_DatabaseName_WeekDate.ext)
+- Consistent time formatting throughout (e.g., "2h 15min", "45s", "1min 30s")
+
+**User Experience:**
+- Streamlined menu structure (combined Export submenu, Edit modes via Switch Mode)
+- Enhanced tooltips showing current database, project, and mode
+- Confirmation dialogs for destructive actions
+- Manual time adjustment for retrospective logging
 
 ## Requirements
 
@@ -36,11 +63,24 @@ Lightweight Windows system tray time tracker with mode switching, idle/sleep han
 
 ## Common Actions (Tray Menu)
 
-- Switch Mode / Custom… : change current activity
-- Set Idle : manually mark idle
-- Statistics → Mode Distribution : view chart / export HTML
-- Export Week (CSV) : raw entries sample export
-- Admin → Export / Import Database, Clear Logged Entries
+**Mode & Project Management:**
+- Switch Mode → [Mode List] : quickly switch to existing modes
+- Switch Mode → Edit... : open comprehensive mode management dialog
+- Set Idle : manually mark current activity as idle
+- Projects → [Project List] : switch between projects
+- Projects → Edit Projects... : manage projects (add/edit/archive)
+
+**Data Export:**
+- Export → CSV... : export time entries to CSV file
+- Export → HTML... : generate mode distribution charts and reports
+
+**Database Management:**
+- Admin → Create/Select Database : manage multiple databases
+- Admin → Export/Import Database : backup and restore functionality
+- Admin → Clear Logged Entries : reset data with confirmation
+
+**Settings & Info:**
+- Current database and project shown in tray tooltip and menu headers
 
 ## Build Executable
 
