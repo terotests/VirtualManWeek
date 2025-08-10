@@ -1,4 +1,4 @@
-# VirtualManWeek
+# Virtual Man Week
 
 Once in my early life there was a great Windows program called "Virtual Man Month", which was developed by a very productive programmer in our company using purely Win32 APIs at the time. It was working from the Windows tray Icon and eveyone in the company was logging their hours to it. It was a great tool which was used years in our small startup.
 
