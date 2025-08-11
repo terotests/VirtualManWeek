@@ -336,6 +336,47 @@ def mode_distribution(start_date: Optional['datetime'] = None, end_date: Optiona
         return [dict(r) for r in cur.fetchall()]
 
 
+def project_distribution(start_date: Optional['datetime'] = None, end_date: Optional['datetime'] = None, limit: Optional[int] = None):
+    """Return list of {project_name, total_active_seconds} sorted descending by active time.
+    Optionally filter by date range and limit number of rows (for charts)."""
+    with connect() as conn:
+        cur = conn.cursor()
+        base = """
+            SELECT 
+                CASE 
+                    WHEN te.project_id IS NULL THEN '(No Project)'
+                    WHEN p.code IS NOT NULL AND p.name IS NOT NULL THEN p.code || ' - ' || p.name
+                    WHEN p.code IS NOT NULL THEN p.code
+                    WHEN p.name IS NOT NULL THEN p.name
+                    ELSE '(Unknown Project)'
+                END AS project_name,
+                SUM(te.active_seconds) AS total_active
+            FROM time_entries te
+            LEFT JOIN projects p ON te.project_id = p.id
+        """
+        
+        # Add date filtering if provided
+        conditions = []
+        params = []
+        if start_date:
+            conditions.append("te.start_ts >= ?")
+            params.append(int(start_date.timestamp()))
+        if end_date:
+            conditions.append("te.start_ts <= ?")
+            params.append(int(end_date.timestamp()))
+        
+        if conditions:
+            base += " WHERE " + " AND ".join(conditions)
+        
+        base += " GROUP BY te.project_id, p.code, p.name ORDER BY total_active DESC"
+        
+        if limit:
+            base += f" LIMIT {int(limit)}"
+        
+        cur.execute(base, params)
+        return [dict(r) for r in cur.fetchall()]
+
+
 def get_time_entries_for_export(start_date: Optional['datetime'] = None, end_date: Optional['datetime'] = None, limit: int = 1000):
     """Get time entries for CSV export, optionally filtered by date range."""
     with connect() as conn:

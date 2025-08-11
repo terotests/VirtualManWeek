@@ -56,25 +56,46 @@ def render_mode_distribution_html(html_path: Path, start_date: Optional[datetime
     - Writes to html_path
     - If start_date/end_date provided, filters data to that range
     """
-    data = models.mode_distribution(start_date, end_date)
-    if not data:
+    # Get mode distribution data
+    mode_data = models.mode_distribution(start_date, end_date)
+    project_data = models.project_distribution(start_date, end_date)
+    
+    if not mode_data and not project_data:
         # Write a minimal HTML stating no data so caller can still open it
         date_info = ""
         if start_date and end_date:
             date_info = f" for {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
         html_path.write_text(f"<html><body><p>No data yet{date_info}.</p></body></html>", encoding="utf-8")
         return
-    max_val = max(int(r['total_active']) for r in data)
+    
+    # Calculate max value and unit scaling from both datasets
+    max_val = 0
+    if mode_data:
+        max_val = max(max_val, max(int(r['total_active']) for r in mode_data))
+    if project_data:
+        max_val = max(max_val, max(int(r['total_active']) for r in project_data))
+    
     divisor, unit = compute_scale_unit(max_val)
 
-    labels: List[str] = [r['mode'] for r in data]
-    raw_values: List[int] = [int(r['total_active']) for r in data]
+    # Prepare mode data
+    mode_labels: List[str] = [r['mode'] for r in mode_data] if mode_data else []
+    mode_raw_values: List[int] = [int(r['total_active']) for r in mode_data] if mode_data else []
     if unit == 'Hours':
-        values = [round(v / divisor, 2) for v in raw_values]
+        mode_values = [round(v / divisor, 2) for v in mode_raw_values]
     elif unit == 'Minutes':
-        values = [round(v / divisor, 1) for v in raw_values]
+        mode_values = [round(v / divisor, 1) for v in mode_raw_values]
     else:
-        values = [int(v / divisor) for v in raw_values]
+        mode_values = [int(v / divisor) for v in mode_raw_values]
+
+    # Prepare project data
+    project_labels: List[str] = [r['project_name'] for r in project_data] if project_data else []
+    project_raw_values: List[int] = [int(r['total_active']) for r in project_data] if project_data else []
+    if unit == 'Hours':
+        project_values = [round(v / divisor, 2) for v in project_raw_values]
+    elif unit == 'Minutes':
+        project_values = [round(v / divisor, 1) for v in project_raw_values]
+    else:
+        project_values = [int(v / divisor) for v in project_raw_values]
 
     per_mode_tables: List[str] = []
     daily_tables: List[str] = []
@@ -83,7 +104,7 @@ def render_mode_distribution_html(html_path: Path, start_date: Optional[datetime
     with models.connect() as conn:
         cur = conn.cursor()
         # Per-mode details
-        for mode in labels:
+        for mode in mode_labels:
             # Build query with date filtering
             base_query = "SELECT date, start_ts, end_ts, active_seconds, idle_seconds, manual_seconds, description FROM time_entries WHERE mode_label=?"
             params = [mode]
@@ -178,12 +199,13 @@ def render_mode_distribution_html(html_path: Path, start_date: Optional[datetime
     elif end_date:
         title_suffix = f" - until {end_date.strftime('%Y-%m-%d')}"
 
-    html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'/><title>Mode Distribution{title_suffix}</title>
+    html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'/><title>Time Distribution{title_suffix}</title>
 <style>
 body{{font-family:Segoe UI,Arial,sans-serif;margin:24px;background:#f9f9fb;color:#222}}
 h2{{margin-top:0}}
+h3{{margin-top:40px;border-bottom:2px solid #0A4F9C;padding-bottom:4px}}
 #meta{{font-size:12px;color:#555;margin-bottom:12px}}
-canvas{{border:1px solid #ddd;background:#fff}}
+canvas{{border:1px solid #ddd;background:#fff;margin-bottom:30px}}
 section.details h3, section.daily h3{{margin-top:40px;border-bottom:2px solid #0A4F9C;padding-bottom:4px}}
 table.mode{{border-collapse:collapse;margin:12px 0 28px 0;width:100%;background:#fff;font-size:13px}}
 table.mode th,table.mode td{{border:1px solid #ddd;padding:4px 6px;vertical-align:top}}
@@ -191,20 +213,51 @@ table.mode th{{background:#0A4F9C;color:#fff;text-align:left}}
 .num{{text-align:right;white-space:nowrap}}
 .desc{{max-width:640px;}}
 h4{{margin:28px 0 6px 0;color:#0A4F9C}}
+.chart-section{{margin-bottom:40px}}
 </style>
 <script src='https://cdn.jsdelivr.net/npm/chart.js'></script></head><body>
-<h2>Mode Distribution (Active {unit}){title_suffix}</h2>
+<h2>Time Distribution{title_suffix}</h2>
 <div id='meta'>Generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} &middot; Max raw seconds: {max_val}</div>
-<canvas id='c' width='1000' height='500'></canvas>
+
+<div class='chart-section'>
+<h3>Mode Distribution (Active {unit})</h3>
+<canvas id='modeChart' width='1000' height='400'></canvas>
+</div>
+
+<div class='chart-section'>
+<h3>Project Distribution (Active {unit})</h3>
+<canvas id='projectChart' width='1000' height='400'></canvas>
+</div>
+
 <script>
-const labels = {labels};
-const dataVals = {values};
+// Mode distribution chart
+const modeLabels = {mode_labels};
+const modeDataVals = {mode_values};
+const projectLabels = {project_labels};
+const projectDataVals = {project_values};
 const unit = '{unit}';
-new Chart(document.getElementById('c').getContext('2d'), {{
-  type: 'bar',
-  data: {{ labels: labels, datasets: [{{ label: 'Active ' + unit, data: dataVals, backgroundColor: '#0A4F9C'}}] }},
-  options: {{ indexAxis: 'x', responsive: false, plugins: {{ legend: {{ position: 'bottom' }}, tooltip: {{ callbacks: {{ label: (ctx)=> ctx.parsed.y + ' ' + unit }} }} }}, scales: {{ y: {{ beginAtZero: true, title: {{ display:true, text: unit }} }} }} }}
-}});
+
+if (modeLabels.length > 0) {{
+    new Chart(document.getElementById('modeChart').getContext('2d'), {{
+        type: 'bar',
+        data: {{ labels: modeLabels, datasets: [{{ label: 'Active ' + unit, data: modeDataVals, backgroundColor: '#0A4F9C'}}] }},
+        options: {{ indexAxis: 'x', responsive: false, plugins: {{ legend: {{ position: 'bottom' }}, tooltip: {{ callbacks: {{ label: (ctx)=> ctx.parsed.y + ' ' + unit }} }} }}, scales: {{ y: {{ beginAtZero: true, title: {{ display:true, text: unit }} }} }} }}
+    }});
+}} else {{
+    document.getElementById('modeChart').style.display = 'none';
+    document.querySelector('h3').innerHTML = 'Mode Distribution (Active {unit}) - No data';
+}}
+
+if (projectLabels.length > 0) {{
+    new Chart(document.getElementById('projectChart').getContext('2d'), {{
+        type: 'bar',
+        data: {{ labels: projectLabels, datasets: [{{ label: 'Active ' + unit, data: projectDataVals, backgroundColor: '#2E8B57'}}] }},
+        options: {{ indexAxis: 'x', responsive: false, plugins: {{ legend: {{ position: 'bottom' }}, tooltip: {{ callbacks: {{ label: (ctx)=> ctx.parsed.y + ' ' + unit }} }} }}, scales: {{ y: {{ beginAtZero: true, title: {{ display:true, text: unit }} }} }} }}
+    }});
+}} else {{
+    document.getElementById('projectChart').style.display = 'none';
+    document.querySelectorAll('h3')[1].innerHTML = 'Project Distribution (Active {unit}) - No data';
+}}
 </script>
 <section class='daily'>
 <h3>Daily Timeline</h3>
