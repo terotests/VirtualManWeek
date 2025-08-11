@@ -185,10 +185,14 @@ def render_mode_distribution_html(html_path: Path, start_date: Optional[datetime
     
     # Calculate max value and unit scaling from both datasets
     max_val = 0
+    total_time_seconds = 0
     if mode_data:
         max_val = max(max_val, max(int(r['total_active']) for r in mode_data))
+        total_time_seconds += sum(int(r['total_active']) for r in mode_data)
     if project_data:
         max_val = max(max_val, max(int(r['total_active']) for r in project_data))
+        # Don't double-count project data since it's the same time entries as modes
+        # total_time_seconds is already counted from mode_data
     
     divisor, unit = compute_scale_unit(max_val)
 
@@ -345,7 +349,7 @@ h4{{margin:28px 0 6px 0;color:#0A4F9C}}
 </style>
 <script src='https://cdn.jsdelivr.net/npm/chart.js'></script></head><body>
 <h2>Time Distribution{title_suffix}</h2>
-<div id='meta'>Generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} &middot; Max raw seconds: {max_val}</div>
+<div id='meta'>Generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} &middot; Total time: {_fmt_time_short(total_time_seconds)}</div>
 
 <div class='chart-section'>
 <h3>Mode Distribution (Active {unit})</h3>
