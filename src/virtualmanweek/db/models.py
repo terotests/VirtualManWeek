@@ -307,15 +307,59 @@ def update_mode(mode_id: int, new_label: str):
         conn.commit()
 
 
-def mode_distribution(limit: Optional[int] = None):
+def mode_distribution(start_date: Optional['datetime'] = None, end_date: Optional['datetime'] = None, limit: Optional[int] = None):
     """Return list of {mode, total_active_seconds} sorted descending by active time.
-    Optionally limit number of rows (for charts)."""
+    Optionally filter by date range and limit number of rows (for charts)."""
     with connect() as conn:
         cur = conn.cursor()
-        base = "SELECT mode_label AS mode, SUM(active_seconds) AS total_active FROM time_entries GROUP BY mode_label ORDER BY total_active DESC"
+        base = "SELECT mode_label AS mode, SUM(active_seconds) AS total_active FROM time_entries"
+        
+        # Add date filtering if provided
+        conditions = []
+        params = []
+        if start_date:
+            conditions.append("start_ts >= ?")
+            params.append(int(start_date.timestamp()))
+        if end_date:
+            conditions.append("start_ts <= ?")
+            params.append(int(end_date.timestamp()))
+        
+        if conditions:
+            base += " WHERE " + " AND ".join(conditions)
+        
+        base += " GROUP BY mode_label ORDER BY total_active DESC"
+        
         if limit:
             base += f" LIMIT {int(limit)}"
-        cur.execute(base)
+        
+        cur.execute(base, params)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_time_entries_for_export(start_date: Optional['datetime'] = None, end_date: Optional['datetime'] = None, limit: int = 1000):
+    """Get time entries for CSV export, optionally filtered by date range."""
+    with connect() as conn:
+        cur = conn.cursor()
+        base = "SELECT date, project_id, mode_label, active_seconds, idle_seconds, manual_seconds, description FROM time_entries"
+        
+        # Add date filtering if provided
+        conditions = []
+        params = []
+        if start_date:
+            conditions.append("start_ts >= ?")
+            params.append(int(start_date.timestamp()))
+        if end_date:
+            conditions.append("start_ts <= ?")
+            params.append(int(end_date.timestamp()))
+        
+        if conditions:
+            base += " WHERE " + " AND ".join(conditions)
+        
+        base += " ORDER BY start_ts DESC"
+        if limit:
+            base += f" LIMIT {int(limit)}"
+        
+        cur.execute(base, params)
         return [dict(r) for r in cur.fetchall()]
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from datetime import datetime
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Dict, Tuple, Optional
 
 from ..db import models
 from ..config import appdata_root
@@ -48,17 +48,21 @@ def _fmt_dt(ts: int) -> str:
         return str(ts)
 
 
-def render_mode_distribution_html(html_path: Path) -> None:
+def render_mode_distribution_html(html_path: Path, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> None:
     """Generate an HTML file with mode distribution using only Chart.js CDN and plain HTML.
 
     - Reads data via models.mode_distribution() and time_entries for detail sections
     - Chooses sensible unit scaling (s/min/h)
     - Writes to html_path
+    - If start_date/end_date provided, filters data to that range
     """
-    data = models.mode_distribution()
+    data = models.mode_distribution(start_date, end_date)
     if not data:
         # Write a minimal HTML stating no data so caller can still open it
-        html_path.write_text("<html><body><p>No data yet.</p></body></html>", encoding="utf-8")
+        date_info = ""
+        if start_date and end_date:
+            date_info = f" for {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+        html_path.write_text(f"<html><body><p>No data yet{date_info}.</p></body></html>", encoding="utf-8")
         return
     max_val = max(int(r['total_active']) for r in data)
     divisor, unit = compute_scale_unit(max_val)
@@ -80,10 +84,19 @@ def render_mode_distribution_html(html_path: Path) -> None:
         cur = conn.cursor()
         # Per-mode details
         for mode in labels:
-            cur.execute(
-                "SELECT date, start_ts, end_ts, active_seconds, idle_seconds, manual_seconds, description FROM time_entries WHERE mode_label=? ORDER BY active_seconds DESC, start_ts DESC LIMIT 200",
-                (mode,),
-            )
+            # Build query with date filtering
+            base_query = "SELECT date, start_ts, end_ts, active_seconds, idle_seconds, manual_seconds, description FROM time_entries WHERE mode_label=?"
+            params = [mode]
+            
+            if start_date:
+                base_query += " AND start_ts >= ?"
+                params.append(int(start_date.timestamp()))
+            if end_date:
+                base_query += " AND start_ts <= ?"
+                params.append(int(end_date.timestamp()))
+            
+            base_query += " ORDER BY active_seconds DESC, start_ts DESC LIMIT 200"
+            cur.execute(base_query, params)
             rows = cur.fetchall()
             if not rows:
                 continue
@@ -107,9 +120,21 @@ def render_mode_distribution_html(html_path: Path) -> None:
             )
             per_mode_tables.append(table_html)
         # Daily timeline
-        cur.execute(
-            "SELECT date, start_ts, active_seconds, idle_seconds, manual_seconds, mode_label, description FROM time_entries ORDER BY date ASC, start_ts ASC LIMIT 2000"
-        )
+        daily_query = "SELECT date, start_ts, active_seconds, idle_seconds, manual_seconds, mode_label, description FROM time_entries"
+        daily_params = []
+        
+        if start_date or end_date:
+            conditions = []
+            if start_date:
+                conditions.append("start_ts >= ?")
+                daily_params.append(int(start_date.timestamp()))
+            if end_date:
+                conditions.append("start_ts <= ?")
+                daily_params.append(int(end_date.timestamp()))
+            daily_query += " WHERE " + " AND ".join(conditions)
+        
+        daily_query += " ORDER BY date ASC, start_ts ASC LIMIT 2000"
+        cur.execute(daily_query, daily_params)
         daily_rows = cur.fetchall()
         if daily_rows:
             from collections import defaultdict
@@ -141,7 +166,19 @@ def render_mode_distribution_html(html_path: Path) -> None:
     detail_section = "\n".join(per_mode_tables) if per_mode_tables else "<p><em>No detailed entries.</em></p>"
     daily_section = "\n".join(daily_tables) if daily_tables else "<p><em>No daily entries.</em></p>"
 
-    html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'/><title>Mode Distribution</title>
+    # Generate title with date range info
+    title_suffix = ""
+    if start_date and end_date:
+        if start_date.date() == end_date.date():
+            title_suffix = f" - {start_date.strftime('%Y-%m-%d')}"
+        else:
+            title_suffix = f" - {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+    elif start_date:
+        title_suffix = f" - from {start_date.strftime('%Y-%m-%d')}"
+    elif end_date:
+        title_suffix = f" - until {end_date.strftime('%Y-%m-%d')}"
+
+    html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'/><title>Mode Distribution{title_suffix}</title>
 <style>
 body{{font-family:Segoe UI,Arial,sans-serif;margin:24px;background:#f9f9fb;color:#222}}
 h2{{margin-top:0}}
@@ -156,7 +193,7 @@ table.mode th{{background:#0A4F9C;color:#fff;text-align:left}}
 h4{{margin:28px 0 6px 0;color:#0A4F9C}}
 </style>
 <script src='https://cdn.jsdelivr.net/npm/chart.js'></script></head><body>
-<h2>Mode Distribution (Active {unit})</h2>
+<h2>Mode Distribution (Active {unit}){title_suffix}</h2>
 <div id='meta'>Generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} &middot; Max raw seconds: {max_val}</div>
 <canvas id='c' width='1000' height='500'></canvas>
 <script>
@@ -181,9 +218,9 @@ new Chart(document.getElementById('c').getContext('2d'), {{
     html_path.write_text(html, encoding='utf-8')
 
 
-def export_mode_distribution_html_to(path: Path) -> None:
+def export_mode_distribution_html_to(path: Path, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    render_mode_distribution_html(path)
+    render_mode_distribution_html(path, start_date, end_date)
 
 
 def default_export_path() -> Path:

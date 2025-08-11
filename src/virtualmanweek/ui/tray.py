@@ -16,6 +16,7 @@ from ..db import models
 from .project_dialog import ProjectDialog  # new import
 from .mode_switch_dialog import ModeSwitchDialog  # mode switching with manual time
 from .mode_dialog import ModeDialog  # mode management dialog
+from .export_dialog import ExportDateDialog  # date range selection for exports
 from ..reporting import charts  # HTML-only chart export
 from ..reporting.charts import _fmt_time_short  # Import time formatting function
 import shutil  # for DB export/import
@@ -622,32 +623,85 @@ class TrayApp:
 
     # Charts: show mode distribution (HTML-only export)
     def show_mode_distribution(self):
-        default_filename = self._generate_export_filename("html")
+        # Show date picker dialog
+        dialog = ExportDateDialog(self.menu)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        
+        start_date, end_date = dialog.get_date_range()
+        description = dialog.get_description()
+        
+        # Generate filename based on date range
+        if description == "this week":
+            default_filename = self._generate_export_filename("html")
+        elif description == "last week":
+            # Use last week's Monday for filename
+            last_week_monday = start_date.strftime('%Y_%m_%d')
+            try:
+                db_path = models.db_path()
+                db_name = db_path.stem
+                default_filename = f"VMW_{db_name}_{last_week_monday}.html"
+            except Exception:
+                default_filename = f"VMW_export_{last_week_monday}.html"
+        else:
+            # Custom range
+            start_str = start_date.strftime('%Y_%m_%d')
+            if start_date.date() == end_date.date():
+                default_filename = f"VMW_export_{start_str}.html"
+            else:
+                end_str = end_date.strftime('%Y_%m_%d')
+                default_filename = f"VMW_export_{start_str}_to_{end_str}.html"
+        
         path = self._select_save_path(
-            "Save Chart HTML", default_filename, "HTML Files (*.html);;All Files (*.*)"
+            f"Save Chart HTML ({description})", default_filename, "HTML Files (*.html);;All Files (*.*)"
         )
         if not path:
             return
         try:
-            charts.export_mode_distribution_html_to(path)
+            charts.export_mode_distribution_html_to(path, start_date, end_date)
             webbrowser.open(path.as_uri())
-            self._notify(f"Chart exported to {path}")
+            self._notify(f"Chart exported to {path} ({description})")
         except Exception as e:
             self._notify(f"Chart export failed: {e}")
 
-    # Export: CSV of recent entries
+    # Export: CSV of entries in date range
     def export_week_csv(self):
+        # Show date picker dialog
+        dialog = ExportDateDialog(self.menu)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        
+        start_date, end_date = dialog.get_date_range()
+        description = dialog.get_description()
+        
         try:
-            with models.connect() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT date, project_id, mode_label, active_seconds, idle_seconds, manual_seconds, description FROM time_entries ORDER BY start_ts DESC LIMIT 100"
-                )
-                rows = cur.fetchall()
-            default_filename = self._generate_export_filename("csv")
-            path = self._select_save_path("Save Time Entries CSV", default_filename, "CSV Files (*.csv);;All Files (*.*)")
+            rows = models.get_time_entries_for_export(start_date, end_date, limit=2000)
+            
+            # Generate filename based on date range
+            if description == "this week":
+                default_filename = self._generate_export_filename("csv")
+            elif description == "last week":
+                # Use last week's Monday for filename
+                last_week_monday = start_date.strftime('%Y_%m_%d')
+                try:
+                    db_path = models.db_path()
+                    db_name = db_path.stem
+                    default_filename = f"VMW_{db_name}_{last_week_monday}.csv"
+                except Exception:
+                    default_filename = f"VMW_export_{last_week_monday}.csv"
+            else:
+                # Custom range
+                start_str = start_date.strftime('%Y_%m_%d')
+                if start_date.date() == end_date.date():
+                    default_filename = f"VMW_export_{start_str}.csv"
+                else:
+                    end_str = end_date.strftime('%Y_%m_%d')
+                    default_filename = f"VMW_export_{start_str}_to_{end_str}.csv"
+            
+            path = self._select_save_path(f"Save Time Entries CSV ({description})", default_filename, "CSV Files (*.csv);;All Files (*.*)")
             if not path:
                 return
+            
             with path.open("w", encoding="utf-8") as f:
                 f.write("date,project_id,mode,active_seconds,idle_seconds,manual_seconds,description\n")
                 for r in rows:
@@ -662,7 +716,7 @@ class TrayApp:
                     f.write(
                         f"{r['date']},{r['project_id'] if r['project_id'] is not None else ''},{r['mode_label']},{r['active_seconds']},{r['idle_seconds']},{manual_secs},{desc_out}\n"
                     )
-            self._notify(f"Exported {len(rows)} rows to {path}")
+            self._notify(f"Exported {len(rows)} rows to {path} ({description})")
         except Exception as e:
             self._notify(f"Export failed: {e}")
 
