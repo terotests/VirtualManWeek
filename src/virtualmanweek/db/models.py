@@ -307,6 +307,47 @@ def update_mode(mode_id: int, new_label: str):
         conn.commit()
 
 
+def rename_mode_everywhere(old_label: str, new_label: str):
+    """Rename a mode everywhere it appears (modes table and time_entries table).
+    This ensures consistency across all tables."""
+    with connect() as conn:
+        cur = conn.cursor()
+        
+        # Update the modes table
+        cur.execute("UPDATE modes SET label=? WHERE label=?", (new_label, old_label))
+        
+        # Update all time_entries that use this mode_label
+        cur.execute("UPDATE time_entries SET mode_label=? WHERE mode_label=?", (new_label, old_label))
+        
+        conn.commit()
+
+
+def check_mode_name_conflict(new_name: str, exclude_id: Optional[int] = None) -> bool:
+    """Check if a mode name already exists (case-insensitive, trimmed).
+    Returns True if conflict exists, False if name is available.
+    exclude_id: mode ID to exclude from the check (for editing existing modes)."""
+    new_name_normalized = new_name.strip().lower()
+    
+    with connect() as conn:
+        cur = conn.cursor()
+        
+        # Check in modes table
+        if exclude_id is not None:
+            cur.execute("SELECT id FROM modes WHERE LOWER(TRIM(label))=? AND id!=?", (new_name_normalized, exclude_id))
+        else:
+            cur.execute("SELECT id FROM modes WHERE LOWER(TRIM(label))=?", (new_name_normalized,))
+        
+        if cur.fetchone():
+            return True
+        
+        # Also check in time_entries for auto-detected modes
+        cur.execute("SELECT DISTINCT mode_label FROM time_entries WHERE LOWER(TRIM(mode_label))=?", (new_name_normalized,))
+        if cur.fetchone():
+            return True
+    
+    return False
+
+
 def mode_distribution(start_date: Optional['datetime'] = None, end_date: Optional['datetime'] = None, limit: Optional[int] = None):
     """Return list of {mode, total_active_seconds} sorted descending by active time.
     Optionally filter by date range and limit number of rows (for charts)."""

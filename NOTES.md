@@ -1,5 +1,15 @@
 Couple of issues noticed:
 
+- ✅ FIXED: Editing the modes is now possible in the "Manage Modes" and "Edit selected" where you can change tha name. If node is renames: all the modes stored in to the time_entries table should also be renamed. Also, before renaming, it should be checked that the name is unique in case insensitive manner and also after removing spaces ( trimming ), so "Abc" and " abc" should be the same name and renaming the mode to the same name should never be allowed. In that case there should be error dialog saying that can not change the name to mode which already exists in the database.
+
+  - Created `rename_mode_everywhere()` function in models.py that updates both modes table and time_entries table
+  - Created `check_mode_name_conflict()` function for robust name validation (case-insensitive, trimmed)
+  - Updated mode dialog's edit functionality to use new validation and renaming
+  - When renaming a mode, all existing time entries using that mode are automatically updated
+  - Error dialog shows clear message about name conflicts with case-insensitive/trimmed comparison
+  - Success dialog confirms that time entries have been updated automatically
+  - Improved validation also applied to adding new modes
+
 - ✅ FIXED: I would like to have a Dialog where I could have a menu item "Edit hours" where I can have all the recordings for today and then I can edit the recorded time for each entry so that if I make the time "less" then 1) if next recorded time starts immediately after the time ( 3 min considered thresold ) then move the next time slot to start earlier, for example if I have forgotten some mode on for 1 hour and then switch to second mode, which was the real work I was doing,I can adjust the first recording to end earlier and at the sime time the next recording will be automatically moved to start a bit earlier the same amount.
 
   - Created `EditHoursDialog` class in `edit_hours_dialog.py`

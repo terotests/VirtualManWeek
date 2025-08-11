@@ -116,12 +116,15 @@ class ModeDialog(QDialog):
             return
         
         try:
-            # Check if mode already exists
-            existing_modes = models.list_modes()
-            for mode in existing_modes:
-                if mode['label'].lower() == mode_name.lower():
-                    QMessageBox.warning(self, "Error", f"Mode '{mode_name}' already exists.")
-                    return
+            # Check if mode already exists using improved validation
+            if models.check_mode_name_conflict(mode_name):
+                QMessageBox.warning(
+                    self, 
+                    "Name Conflict", 
+                    f"Cannot add '{mode_name}' because a mode with this name already exists in the database.\n\n"
+                    "Mode names are compared case-insensitively and with spaces trimmed."
+                )
+                return
             
             models.upsert_mode(mode_name)
             self.new_mode_edit.clear()
@@ -164,17 +167,27 @@ class ModeDialog(QDialog):
             return  # No change
         
         try:
-            # Check if new name already exists
-            existing_modes = models.list_modes()
-            for mode in existing_modes:
-                if mode['label'].lower() == new_name.lower() and mode['id'] != mode_data['id']:
-                    QMessageBox.warning(self, "Error", f"Mode '{new_name}' already exists.")
-                    return
+            # Check if new name already exists using improved validation
+            if models.check_mode_name_conflict(new_name, exclude_id=mode_data['id']):
+                QMessageBox.warning(
+                    self, 
+                    "Name Conflict", 
+                    f"Cannot rename to '{new_name}' because a mode with this name already exists in the database.\n\n"
+                    "Mode names are compared case-insensitively and with spaces trimmed."
+                )
+                return
             
-            # Update the mode
-            models.update_mode(mode_data['id'], new_name)
+            # Rename the mode everywhere it appears
+            models.rename_mode_everywhere(current_name, new_name)
             self._refresh_list()
-            QMessageBox.information(self, "Success", f"Mode renamed to '{new_name}'.")
+            
+            # Show success message with info about what was updated
+            QMessageBox.information(
+                self, 
+                "Success", 
+                f"Mode renamed from '{current_name}' to '{new_name}'.\n\n"
+                "All existing time entries using this mode have been updated automatically."
+            )
             
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to edit mode: {e}")
