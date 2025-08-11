@@ -6,7 +6,7 @@ Once in my early life there was a great Windows program called "Virtual Man-Mont
 
 IMPORTANT! This tool is not yet as production grade. It uses **SQLite** database to store the data locally. So, if you use this, make backups of the data and modify the source code the way you want.
 
-So, what this is... basicly a Windows system tray time tracker with mode switching, idle detection, and a bit of reporting.
+So, what this is... basicly a Windows system tray time tracker with mode switching, idle detection, and a bit of reporting, which has the main intention to track where time is "lost" in the project.
 
 ![VirtualManWeek Tray Interface](screenshot_tray.png)
 
@@ -14,9 +14,11 @@ _The system tray icon showing the current time, outside the cirle showing the ti
 
 So, what is going here?
 
-1. **Database** means the main database, could represent a customer, testing database or backup. Each database contains full set of time entries.
-2. **Project** optional metadata for each time entry
+1. **Database** means the main database. You must select one database and you can have several databases as _SQLite_ files. Each database could represent a customer or whatever you want.
+2. **Project** is an optional metadata for each time entry. Project can have a code and a name.
 3. **Mode** means what is the working intention, like "Meeting", or "Coffe break" or "Waiting for the Build" - to track how much time is spent on certain kind of activies.
+
+Before you start tracking you need to at least select the Database and then the "Mode" of working and optionally the project, which you are working right now:
 
 ![VirtualManWeek Menu](screenshot_switch_mode.png)
 
