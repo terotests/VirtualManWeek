@@ -218,6 +218,14 @@ def list_active_projects():
         return [dict(r) for r in cur.fetchall()]
 
 
+def list_all_projects():
+    """List all projects including archived ones, with archived status"""
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, code, name, archived FROM projects ORDER BY archived ASC, LOWER(code)")
+        return [dict(r) for r in cur.fetchall()]
+
+
 def set_project_archived(project_id: int, archived: bool):
     with connect() as conn:
         cur = conn.cursor()
