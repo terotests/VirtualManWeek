@@ -17,6 +17,7 @@ from .project_dialog import ProjectDialog  # new import
 from .mode_switch_dialog import ModeSwitchDialog  # mode switching with manual time
 from .mode_dialog import ModeDialog  # mode management dialog
 from .export_dialog import ExportDateDialog  # date range selection for exports
+from .edit_hours_dialog import EditHoursDialog  # edit today's time entries
 from ..reporting import charts  # HTML-only chart export
 from ..reporting.charts import _fmt_time_short  # Import time formatting function
 import shutil  # for DB export/import
@@ -324,6 +325,13 @@ class TrayApp:
         self.projects_menu = self.menu.addMenu("Projects")
         self.projects_menu.aboutToShow.connect(self._rebuild_projects_menu)
         self._rebuild_projects_menu()
+        
+        # Edit Hours
+        edit_hours_act = QAction("Edit Hours", self.menu)
+        edit_hours_act.setIcon(self.menu.style().standardIcon(QStyle.SP_FileDialogDetailedView))
+        edit_hours_act.triggered.connect(self.open_edit_hours)
+        self.menu.addAction(edit_hours_act)
+        
         self.menu.addSeparator()
 
         # Export menu
@@ -620,6 +628,15 @@ class TrayApp:
         except Exception:
             # Fallback to simple filename if something goes wrong
             return f"VMW_export.{extension}"
+
+    # Edit Hours: open dialog to edit today's time entries
+    def open_edit_hours(self):
+        """Open the Edit Hours dialog"""
+        try:
+            dialog = EditHoursDialog(self.menu)
+            dialog.exec()
+        except Exception as e:
+            self._notify(f"Failed to open Edit Hours: {e}")
 
     # Charts: show mode distribution (HTML-only export)
     def show_mode_distribution(self):

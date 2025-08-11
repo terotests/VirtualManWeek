@@ -1,5 +1,20 @@
 Couple of issues noticed:
 
+- ✅ FIXED: I would like to have a Dialog where I could have a menu item "Edit hours" where I can have all the recordings for today and then I can edit the recorded time for each entry so that if I make the time "less" then 1) if next recorded time starts immediately after the time ( 3 min considered thresold ) then move the next time slot to start earlier, for example if I have forgotten some mode on for 1 hour and then switch to second mode, which was the real work I was doing,I can adjust the first recording to end earlier and at the sime time the next recording will be automatically moved to start a bit earlier the same amount.
+
+  - Created `EditHoursDialog` class in `edit_hours_dialog.py`
+  - Added "Edit Hours" menu item to tray context menu with file detail icon
+  - Dialog shows all today's time entries in a table with Mode, Project, Start Time, End Time, Duration, and Description
+  - End times are editable using QTimeEdit widgets with improved wider layout
+  - Smart time adjustment: when shortening an entry, if the next entry starts within 3 minutes, it automatically adjusts the next entry's start time
+  - **Color coding**: Modified entries are highlighted in light blue for visual feedback
+  - **Real-time updates**: Duration automatically updates when end time is changed for both current and next entries
+  - **Validation**: Prevents setting end time before start time with user-friendly error message
+  - **Confirmation dialog**: Shows detailed summary of all changes before applying with "Are you sure?" confirmation
+  - **Proportional time scaling**: When adjusting entries, properly scales active/idle/manual time components
+  - All changes are saved to the database when clicking "Save Changes"
+  - Proper error handling and user feedback
+
 - ✅ FIXED: Import database Should not do anything else than copy the imported database to the AppData ... Roaming folder and then Switch to the new database that was imported. If a database with same name exists, ask if you want to overwrite or not.
 
   - Modified `import_database()` method to copy to AppData instead of overwriting current database
