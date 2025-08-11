@@ -1,8 +1,8 @@
-# Virtual Man Week
+# Virtual Man-Week
 
-Once in my early life there was a great Windows program called "Virtual Man Month", which was developed by a very productive programmer in our company using purely Win32 APIs at the time. It was working from the Windows tray Icon and eveyone in the company was logging their hours to it. It was a great tool which was used years in our small startup.
+Once in my early life there was a great Windows program called "Virtual Man-Month" <sup>\*)</sup>, which was developed by a very productive programmer in our company using purely Win32 APIs at the time. It was working from the Windows tray Icon and eveyone in the company was logging their hours to it. It was a great tool which was used years in our small startup.
 
-This week I noticed I needed something similar, to avoid time consuming context switching and time logging using tools like Excel.
+> \*) Named after Fred Brooks' classic book [**"The Mythical Man-Month"**](https://en.wikipedia.org/wiki/The_Mythical_Man-Month), which explores the complexities of software project management and time estimation.
 
 IMPORTANT! This tool is not yet as production grade. It uses **SQLite** database to store the data locally. So, if you use this, make backups of the data and modify the source code the way you want.
 
@@ -18,7 +18,7 @@ So, what is going here?
 2. **Project** optional metadata for each time entry
 3. **Mode** means what is the working intention, like "Meeting", or "Coffe break" or "Waiting for the Build" - to track how much time is spent on certain kind of activies.
 
-![VirtualManWeek Tray Interface](screenshot_switch_mode.png)
+![VirtualManWeek Menu](screenshot_switch_mode.png)
 
 _The menu where you can switch the mode of working._
 
