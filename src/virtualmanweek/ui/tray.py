@@ -914,6 +914,20 @@ class TrayApp:
             self._notify(f"Import failed: {e}")
 
     def quit(self):
+        # Show confirmation dialog
+        resp = QMessageBox.question(
+            None,
+            "Confirm Exit",
+            "Are you sure you want to exit VirtualManWeek?\n\n"
+            "This will stop time tracking and close the application.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,  # Default to No for safety
+        )
+        
+        if resp != QMessageBox.Yes:
+            return  # User cancelled, don't quit
+        
+        # User confirmed, proceed with quit
         self.tracker.flush_all()
         self.tray.hide()
         self.app.quit()
