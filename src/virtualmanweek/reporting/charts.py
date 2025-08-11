@@ -48,6 +48,121 @@ def _fmt_dt(ts: int) -> str:
         return str(ts)
 
 
+def _generate_weekly_project_table(cur, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> str:
+    """Generate a table showing project time distribution by weekday."""
+    import html as _html
+    from collections import defaultdict
+    
+    # Query for project data with dates
+    query = """
+        SELECT date, start_ts, active_seconds, idle_seconds, manual_seconds, 
+               project_id, p.code, p.name
+        FROM time_entries te
+        LEFT JOIN projects p ON te.project_id = p.id
+    """
+    
+    params = []
+    if start_date or end_date:
+        conditions = []
+        if start_date:
+            conditions.append("start_ts >= ?")
+            params.append(int(start_date.timestamp()))
+        if end_date:
+            conditions.append("start_ts <= ?")
+            params.append(int(end_date.timestamp()))
+        query += " WHERE " + " AND ".join(conditions)
+    
+    query += " ORDER BY date ASC"
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    
+    if not rows:
+        return "<p><em>No project data available.</em></p>"
+    
+    # Group data by project and weekday
+    # Structure: {project_name: {date_key: total_seconds}}
+    project_data = defaultdict(lambda: defaultdict(int))
+    all_dates = set()
+    all_projects = set()
+    
+    for r in rows:
+        try:
+            date_obj = datetime.strptime(r['date'], '%Y-%m-%d')
+            weekday = date_obj.strftime('%A')  # Monday, Tuesday, etc.
+            day_number = date_obj.strftime('%d.%m')  # 10.08
+            date_key = f"{weekday}\n{day_number}"
+            
+            # Get project name
+            if r['project_id'] and r['code']:
+                if r['name']:
+                    project_name = f"{r['code']} - {r['name']}"
+                else:
+                    project_name = r['code']
+            elif r['project_id']:
+                project_name = f"Project {r['project_id']}"
+            else:
+                project_name = "(No Project)"
+            
+            # Sum total time (active + idle + manual)
+            total_time = (r['active_seconds'] or 0) + (r['idle_seconds'] or 0) + (r['manual_seconds'] or 0)
+            
+            project_data[project_name][date_key] += total_time
+            all_dates.add(date_key)
+            all_projects.add(project_name)
+            
+        except Exception:
+            continue  # Skip invalid dates
+    
+    if not all_projects:
+        return "<p><em>No project data with valid dates.</em></p>"
+    
+    # Sort dates by actual date (not string)
+    def date_sort_key(date_key):
+        try:
+            # Extract day and month from format "Monday\n10.08"
+            parts = date_key.split('\n')
+            if len(parts) == 2:
+                day_month = parts[1]  # "10.08"
+                day, month = day_month.split('.')
+                # Use current year for sorting, this might span year boundary but should be OK for weekly view
+                year = datetime.now().year
+                return datetime(year, int(month), int(day))
+        except:
+            pass
+        return datetime.min
+    
+    sorted_dates = sorted(all_dates, key=date_sort_key)
+    sorted_projects = sorted(all_projects)
+    
+    # Generate HTML table
+    header_cells = ['<th class="project-col">Project</th>']
+    for date_key in sorted_dates:
+        header_cells.append(f'<th class="weekday-col">{_html.escape(date_key)}</th>')
+    
+    table_rows = ['<tr>' + ''.join(header_cells) + '</tr>']
+    
+    for project in sorted_projects:
+        row_cells = [f'<td class="project-name">{_html.escape(project)}</td>']
+        for date_key in sorted_dates:
+            total_seconds = project_data[project][date_key]
+            if total_seconds > 0:
+                time_str = _fmt_time_short(total_seconds)
+                row_cells.append(f'<td class="num">{time_str}</td>')
+            else:
+                row_cells.append('<td class="num">-</td>')
+        table_rows.append('<tr>' + ''.join(row_cells) + '</tr>')
+    
+    table_html = f"""
+    <h3>Weekly Project Distribution</h3>
+    <table class="weekly-project">
+        <thead>{''.join(table_rows[:1])}</thead>
+        <tbody>{''.join(table_rows[1:])}</tbody>
+    </table>
+    """
+    
+    return table_html
+
+
 def render_mode_distribution_html(html_path: Path, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> None:
     """Generate an HTML file with mode distribution using only Chart.js CDN and plain HTML.
 
@@ -157,6 +272,10 @@ def render_mode_distribution_html(html_path: Path, start_date: Optional[datetime
         daily_query += " ORDER BY date ASC, start_ts ASC LIMIT 2000"
         cur.execute(daily_query, daily_params)
         daily_rows = cur.fetchall()
+        
+        # Generate weekly project distribution table
+        weekly_project_table = _generate_weekly_project_table(cur, start_date, end_date)
+        
         if daily_rows:
             from collections import defaultdict
             grouped: Dict[str, list] = defaultdict(list)
@@ -186,6 +305,9 @@ def render_mode_distribution_html(html_path: Path, start_date: Optional[datetime
 
     detail_section = "\n".join(per_mode_tables) if per_mode_tables else "<p><em>No detailed entries.</em></p>"
     daily_section = "\n".join(daily_tables) if daily_tables else "<p><em>No daily entries.</em></p>"
+    
+    # Include weekly project table
+    weekly_project_section = weekly_project_table
 
     # Generate title with date range info
     title_suffix = ""
@@ -210,6 +332,12 @@ section.details h3, section.daily h3{{margin-top:40px;border-bottom:2px solid #0
 table.mode{{border-collapse:collapse;margin:12px 0 28px 0;width:100%;background:#fff;font-size:13px}}
 table.mode th,table.mode td{{border:1px solid #ddd;padding:4px 6px;vertical-align:top}}
 table.mode th{{background:#0A4F9C;color:#fff;text-align:left}}
+table.weekly-project{{border-collapse:collapse;margin:12px 0 28px 0;width:100%;background:#fff;font-size:13px}}
+table.weekly-project th,table.weekly-project td{{border:1px solid #ddd;padding:6px 8px;vertical-align:top;text-align:center}}
+table.weekly-project th{{background:#0A4F9C;color:#fff;font-weight:bold}}
+table.weekly-project th.project-col{{text-align:left;min-width:150px}}
+table.weekly-project th.weekday-col{{min-width:80px;white-space:pre-line}}
+table.weekly-project td.project-name{{text-align:left;font-weight:500;background:#f8f9fa}}
 .num{{text-align:right;white-space:nowrap}}
 .desc{{max-width:640px;}}
 h4{{margin:28px 0 6px 0;color:#0A4F9C}}
@@ -259,6 +387,7 @@ if (projectLabels.length > 0) {{
     document.querySelectorAll('h3')[1].innerHTML = 'Project Distribution (Active {unit}) - No data';
 }}
 </script>
+{weekly_project_section}
 <section class='daily'>
 <h3>Daily Timeline</h3>
 {daily_section}
