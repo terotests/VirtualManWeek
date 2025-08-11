@@ -4,7 +4,7 @@ Once in my early life there was a great Windows program called "Virtual Man Mont
 
 This week I noticed I needed something similar, to avoid time consuming context switching and time logging using tools like Excel.
 
-IMPRTANT! This tool is not yet as production grade. It uses **SQLite** database to store the data locally. So, if you use this, make backups of the data and modify the source code the way you want.
+IMPORTANT! This tool is not yet as production grade. It uses **SQLite** database to store the data locally. So, if you use this, make backups of the data and modify the source code the way you want.
 
 So, what this is... basicly a Windows system tray time tracker with mode switching, idle detection, and a bit of reporting.
 
