@@ -1,7 +1,7 @@
 from __future__ import annotations
 import sqlite3
 from pathlib import Path
-from typing import Optional, Iterable
+from typing import Optional, Iterable, List
 from datetime import datetime, date
 from ..config import appdata_root, settings_path
 import json
@@ -546,3 +546,30 @@ def initialize_default_modes():
         )
         
         conn.commit()
+
+
+def delete_time_entries(entry_ids: List[int]) -> int:
+    """Delete time entries by their IDs.
+    
+    Args:
+        entry_ids: List of time entry IDs to delete
+        
+    Returns:
+        Number of entries actually deleted
+    """
+    if not entry_ids:
+        return 0
+        
+    with connect() as conn:
+        cur = conn.cursor()
+        
+        # Create placeholders for the IN clause
+        placeholders = ','.join('?' * len(entry_ids))
+        
+        # Delete the entries
+        cur.execute(f"DELETE FROM time_entries WHERE id IN ({placeholders})", entry_ids)
+        
+        deleted_count = cur.rowcount
+        conn.commit()
+        
+        return deleted_count

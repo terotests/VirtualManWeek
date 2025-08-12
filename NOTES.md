@@ -1,6 +1,17 @@
 I would like this "Notes" file to be written into "CHANGELOG" file, create it if it does not exist. Later these entries could be read from the Github issues, but right now this text file is enough
 
-## Recent Issues Addressed
+## Recent Issues
+
+- ✅ COMPLETED: It would be also good In the Edit Hours table, there might also be possibility to remove the row. When checking the checkbox "Delete" button should appear under the table. After clicking it, confirmation about the deletion should be done. Then, remove the row and update the view.
+
+  - **Added delete functionality to Edit Hours dialog**:
+    - Added `delete_time_entries()` function to models.py for database deletion by entry IDs
+    - Created red-styled "Delete Selected" button that appears only when checkboxes are selected
+    - Button text dynamically updates: "Delete Selected Entry" (single) or "Delete Selected Entries (N)" (multiple)
+    - Comprehensive confirmation dialog shows detailed list of entries to be deleted with time, mode, project, and duration
+    - After confirmation, entries are removed from database and table view is refreshed automatically
+    - Proper error handling and user feedback throughout the deletion process
+    - Button disappears when no entries are selected, maintaining clean UI
 
 - ✅ COMPLETED: One issue still remains: When app opens, and you can start tracking by selecting the project and mode, you can not add description there and it is not possible to change it unless you go to the "Edit Hours" which is long way. Would be good to give possibility to give the description during the startup.
 

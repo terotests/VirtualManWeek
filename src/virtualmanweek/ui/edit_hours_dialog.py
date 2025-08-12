@@ -86,6 +86,27 @@ class EditHoursDialog(QDialog):
         self.edit_selected_btn = QPushButton("Edit Selected")
         self.edit_selected_btn.clicked.connect(self.edit_selected)
         
+        # Delete button (initially hidden)
+        self.delete_selected_btn = QPushButton("Delete Selected")
+        self.delete_selected_btn.clicked.connect(self.delete_selected)
+        self.delete_selected_btn.setVisible(False)  # Hidden by default
+        self.delete_selected_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+            }
+            QPushButton:disabled {
+                background-color: #6c757d;
+            }
+        """)
+        
         self.save_btn = QPushButton("Save Changes")
         self.save_btn.clicked.connect(self.save_changes)
         self.save_btn.setEnabled(False)  # Disabled until changes are made
@@ -96,6 +117,7 @@ class EditHoursDialog(QDialog):
         button_layout.addWidget(self.select_all_btn)
         button_layout.addWidget(self.select_none_btn)
         button_layout.addWidget(self.edit_selected_btn)
+        button_layout.addWidget(self.delete_selected_btn)
         button_layout.addStretch()
         button_layout.addWidget(self.save_btn)
         button_layout.addWidget(self.cancel_btn)
@@ -260,18 +282,30 @@ class EditHoursDialog(QDialog):
         self.update_edit_button_state()
     
     def update_edit_button_state(self):
-        """Update the Edit Selected button state based on selection"""
+        """Update the Edit Selected and Delete Selected button states based on selection"""
         selected_count = len(self.get_selected_rows())
-        # Enable edit button only when exactly one row is selected
+        
+        # Edit button: Enable only when exactly one row is selected
         self.edit_selected_btn.setEnabled(selected_count == 1)
         
-        # Update button text to be more descriptive
+        # Update edit button text to be more descriptive
         if selected_count == 0:
             self.edit_selected_btn.setText("Edit Selected (None)")
         elif selected_count == 1:
             self.edit_selected_btn.setText("Edit Selected (1)")
         else:
             self.edit_selected_btn.setText(f"Edit Selected ({selected_count}) - Disabled")
+        
+        # Delete button: Visible and enabled when any rows are selected
+        if selected_count > 0:
+            self.delete_selected_btn.setVisible(True)
+            self.delete_selected_btn.setEnabled(True)
+            if selected_count == 1:
+                self.delete_selected_btn.setText("Delete Selected Entry")
+            else:
+                self.delete_selected_btn.setText(f"Delete Selected Entries ({selected_count})")
+        else:
+            self.delete_selected_btn.setVisible(False)
     
     def get_selected_rows(self) -> List[int]:
         """Get list of selected row indices"""
@@ -319,6 +353,86 @@ class EditHoursDialog(QDialog):
             if self.changed_entries:
                 self.save_btn.setEnabled(True)
     
+    def delete_selected(self):
+        """Delete selected entries after confirmation"""
+        selected_rows = self.get_selected_rows()
+        if not selected_rows:
+            return
+        
+        # Get selected entries for confirmation dialog
+        selected_entries = [self.entries[row] for row in selected_rows]
+        
+        # Create confirmation dialog with details
+        count = len(selected_entries)
+        if count == 1:
+            title = "Delete Time Entry"
+            message = "Are you sure you want to delete this time entry?"
+        else:
+            title = "Delete Time Entries"
+            message = f"Are you sure you want to delete these {count} time entries?"
+        
+        # Add entry details to confirmation
+        details = []
+        for entry in selected_entries:
+            start_time = datetime.fromtimestamp(entry['start_ts']).strftime('%H:%M:%S')
+            end_time = datetime.fromtimestamp(entry['end_ts']).strftime('%H:%M:%S')
+            project_display = f"{entry.get('project_code', 'No Project')} - {entry.get('project_name', '')}" if entry.get('project_id') else "No Project"
+            duration = self.format_duration(entry['elapsed_seconds'])
+            details.append(f"• {start_time} - {end_time} | {entry['mode_label']} | {project_display} | {duration}")
+        
+        full_message = f"{message}\n\nEntries to be deleted:\n" + "\n".join(details[:10])
+        if len(details) > 10:
+            full_message += f"\n... and {len(details) - 10} more entries"
+        
+        # Show confirmation dialog
+        reply = QMessageBox.question(
+            self,
+            title,
+            full_message,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            # Delete entries from database
+            entry_ids = [entry['id'] for entry in selected_entries]
+            
+            try:
+                from ..db.models import delete_time_entries
+                deleted_count = delete_time_entries(entry_ids)
+                
+                if deleted_count > 0:
+                    # Remove entries from local list (in reverse order to maintain indices)
+                    for row in sorted(selected_rows, reverse=True):
+                        del self.entries[row]
+                    
+                    # Clear changed entries that were deleted
+                    self.changed_entries = {i for i in self.changed_entries if i not in selected_rows}
+                    # Adjust changed entries indices for remaining entries
+                    new_changed_entries = set()
+                    for changed_row in self.changed_entries:
+                        new_index = changed_row - sum(1 for deleted_row in selected_rows if deleted_row < changed_row)
+                        new_changed_entries.add(new_index)
+                    self.changed_entries = new_changed_entries
+                    
+                    # Refresh the table display
+                    self.populate_table()
+                    
+                    # Show success message
+                    if count == 1:
+                        QMessageBox.information(self, "Entry Deleted", "Time entry has been deleted successfully.")
+                    else:
+                        QMessageBox.information(self, "Entries Deleted", f"{deleted_count} time entries have been deleted successfully.")
+                    
+                    # Update button states
+                    self.update_edit_button_state()
+                    
+                else:
+                    QMessageBox.warning(self, "Delete Failed", "No entries were deleted. Please try again.")
+                    
+            except Exception as e:
+                QMessageBox.critical(self, "Database Error", f"Failed to delete entries: {str(e)}")
+
     def refresh_table_display(self):
         """Refresh the table display after changes"""
         for row in range(len(self.entries)):
