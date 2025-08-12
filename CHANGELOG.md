@@ -4,6 +4,16 @@ This changelog tracks all notable changes to the VirtualManWeek time tracking ap
 
 ## Recent Issues and Fixes
 
+- ✅ COMPLETED: The user should be able to enter a description during the startup dialog to improve usability and workflow efficiency.
+
+  - **Added description field to startup dialog**:
+    - Added QTextEdit widget to `StartupDialog` for entering work session descriptions
+    - Updated dialog layout with placeholder text "Enter a description for this work session (optional)..."
+    - Modified `get_selection()` method to return project_id, mode_label, and description
+    - Updated `_show_startup_dialog()` in tray.py to pass description to `tracker.start()`
+    - Description field is optional and has reasonable height limit (80px) to maintain dialog usability
+    - Enables users to immediately add context to their work sessions at startup
+
 - ✅ COMPLETED: There is still issue, when starting the application, during startp there is the Project + select mode dialog, if I select "Start tracking" the system tray icon is not immediately updated so it stays "red" even if I have started tracking. The icon will update after some seconds when the clock moves forward.
 
   - **Fixed startup dialog icon update**:

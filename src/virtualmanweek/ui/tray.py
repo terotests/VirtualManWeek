@@ -126,11 +126,11 @@ class TrayApp:
         """Show startup dialog for project and mode selection"""
         dialog = StartupDialog()
         if dialog.exec() == QDialog.Accepted:
-            project_id, mode_label = dialog.get_selection()
+            project_id, mode_label, description = dialog.get_selection()
             # Set current project for future operations
             self.current_project_id = project_id
-            # Start tracking with selected project and mode
-            self.tracker.start(project_id=project_id, mode_label=mode_label)
+            # Start tracking with selected project, mode, and description
+            self.tracker.start(project_id=project_id, mode_label=mode_label, description=description)
             self._apply_icon(idle=(mode_label.lower() == "idle"), force_update=True)
         else:
             # User cancelled - start with default (No Project, Idle)

@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Optional, Tuple
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, 
-    QMessageBox, QFormLayout
+    QMessageBox, QFormLayout, QTextEdit
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -21,6 +21,7 @@ class StartupDialog(QDialog):
         
         self.selected_project_id: Optional[int] = None
         self.selected_mode: str = "Idle"
+        self.selected_description: str = ""
         
         self._build_ui()
         self._populate_dropdowns()
@@ -58,12 +59,18 @@ class StartupDialog(QDialog):
         self.mode_combo.setMinimumHeight(30)
         form_layout.addRow("Mode:", self.mode_combo)
         
+        # Description field
+        self.description_edit = QTextEdit()
+        self.description_edit.setMaximumHeight(80)
+        self.description_edit.setPlaceholderText("Enter a description for this work session (optional)...")
+        form_layout.addRow("Description:", self.description_edit)
+        
         layout.addLayout(form_layout)
         
         # Info text
         info_label = QLabel(
-            "The project and mode selected here will be used to start your first time tracking session. "
-            "You can change these later using the tray menu."
+            "The project, mode, and description selected here will be used to start your first time tracking session. "
+            "You can change these later using the tray menu or Edit Hours dialog."
         )
         info_label.setWordWrap(True)
         info_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 10px;")
@@ -185,6 +192,7 @@ class StartupDialog(QDialog):
         # Get selected values
         self.selected_project_id = self.project_combo.currentData()
         self.selected_mode = self.mode_combo.currentText().strip()
+        self.selected_description = self.description_edit.toPlainText().strip()
         
         if not self.selected_mode:
             QMessageBox.warning(self, "Validation Error", "Please enter a mode to start tracking.")
@@ -192,6 +200,6 @@ class StartupDialog(QDialog):
         
         self.accept()
     
-    def get_selection(self) -> Tuple[Optional[int], str]:
-        """Return the selected project ID and mode"""
-        return self.selected_project_id, self.selected_mode
+    def get_selection(self) -> Tuple[Optional[int], str, str]:
+        """Return the selected project ID, mode, and description"""
+        return self.selected_project_id, self.selected_mode, self.selected_description

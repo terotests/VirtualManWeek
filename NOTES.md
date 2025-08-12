@@ -2,6 +2,16 @@ I would like this "Notes" file to be written into "CHANGELOG" file, create it if
 
 ## Recent Issues Addressed
 
+- ✅ COMPLETED: One issue still remains: When app opens, and you can start tracking by selecting the project and mode, you can not add description there and it is not possible to change it unless you go to the "Edit Hours" which is long way. Would be good to give possibility to give the description during the startup.
+
+  - **Added description field to startup dialog**:
+    - Added QTextEdit widget to `StartupDialog` for entering work session descriptions
+    - Updated dialog layout with placeholder text "Enter a description for this work session (optional)..."
+    - Modified `get_selection()` method to return project_id, mode_label, and description
+    - Updated `_show_startup_dialog()` in tray.py to pass description to `tracker.start()`
+    - Description field is optional and has reasonable height limit (80px) to maintain dialog usability
+    - Enables users to immediately add context to their work sessions at startup
+
 - ✅ COMPLETED: When I stop and start the program OR change the database, during startup the program should give immediately the select Project + Select Mode Dialog ( a new dialog ) where the last time entry has been pre-selected as the Project and last time entrys mode has been pre-selected as the new active mode. Basicly this should very similar to the "Switch mode" dialog, but in the startup there should also be possiblity to select the Project so that it is pre-selected based on the last entry in the database. This way you do not
   need to always select the Project again if switching between databases.
 
