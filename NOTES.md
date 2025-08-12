@@ -1,4 +1,8 @@
+I would like this "Notes" file to be written into "CHANGELOG" file, create it if it does not exist. Later these entries could be read from the Github issues, but right now this text file is enough
+
 Couple of issues noticed:
+
+- The editing mode for the time entries is still a bit problematic, it is too easy to just accidentally click the entries. I think it would be better if the Editing mode table items would be by default
 
 - ✅ FIXED: Editing the modes is now possible in the "Manage Modes" and "Edit selected" where you can change tha name. If node is renames: all the modes stored in to the time_entries table should also be renamed. Also, before renaming, it should be checked that the name is unique in case insensitive manner and also after removing spaces ( trimming ), so "Abc" and " abc" should be the same name and renaming the mode to the same name should never be allowed. In that case there should be error dialog saying that can not change the name to mode which already exists in the database.
 
@@ -17,7 +21,7 @@ Couple of issues noticed:
   - Dialog shows all today's time entries in a table with Mode, Project, Start Time, End Time, Duration, and Description
   - End times are editable using QTimeEdit widgets with improved wider layout
   - Smart time adjustment: when shortening an entry, if the next entry starts within 3 minutes, it automatically adjusts the next entry's start time
-  - **Color coding**: Modified entries are highlighted in light blue for visual feedback
+  - **Color coding**: Modified entries are highlighted in blue for visual feedback with good text readability
   - **Real-time updates**: Duration automatically updates when end time is changed for both current and next entries
   - **Validation**: Prevents setting end time before start time with user-friendly error message
   - **Confirmation dialog**: Shows detailed summary of all changes before applying with "Are you sure?" confirmation

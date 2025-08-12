@@ -36,7 +36,7 @@ class EditHoursDialog(QDialog):
         instructions = QLabel(
             "Adjust end times as needed. When you shorten an entry, the next entry will "
             "automatically start earlier if they're within 3 minutes of each other.\n"
-            "Modified entries will be highlighted in light blue."
+            "Modified entries will be highlighted in dark gray."
         )
         instructions.setWordWrap(True)
         instructions.setStyleSheet("color: #666; margin-bottom: 10px;")
@@ -179,16 +179,16 @@ class EditHoursDialog(QDialog):
     
     def highlight_changed_row(self, row: int):
         """Highlight a row to show it has been modified"""
-        light_blue = QColor(173, 216, 230)  # Light blue background
+        dark_gray = QColor(169, 169, 169)  # Dark gray background for better contrast
         for col in range(self.table.columnCount()):
             item = self.table.item(row, col)
             if item:
-                item.setBackground(light_blue)
+                item.setBackground(dark_gray)
         
-        # Also highlight the time edit widget
+        # Also highlight the time edit widget with dark gray
         time_widget = self.table.cellWidget(row, 3)
         if time_widget:
-            time_widget.setStyleSheet("background-color: #ADD8E6;")
+            time_widget.setStyleSheet("background-color: #A9A9A9;")
     
     def on_end_time_changed(self, row: int, new_time: QTime):
         """Handle end time change and adjust subsequent entries if needed"""
