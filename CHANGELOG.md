@@ -1,8 +1,46 @@
 # VirtualManWeek Changelog
 
-This file tracks changes and improvements made to VirtualManWeek.
+This changelog tracks all notable changes to the VirtualManWeek time tracking application.
 
 ## Recent Issues and Fixes
+
+- ✅ COMPLETED: There is still issue, when starting the application, during startp there is the Project + select mode dialog, if I select "Start tracking" the system tray icon is not immediately updated so it stays "red" even if I have started tracking. The icon will update after some seconds when the clock moves forward.
+
+  - **Fixed startup dialog icon update**:
+    - Added `force_update=True` parameter to `_apply_icon()` calls in `_show_startup_dialog()` method
+    - Tray icon now updates immediately when tracking starts from the startup dialog
+    - No longer need to wait for the polling timer to update the icon
+
+- ✅ COMPLETED: When I stop and start the program OR change the database, during startup the program should give immediately the select Project + Select Mode Dialog ( a new dialog ) where the last time entry has been pre-selected as the Project and last time entrys mode has been pre-selected as the new active mode. Basicly this should very similar to the "Switch mode" dialog, but in the startup there should also be possiblity to select the Project so that it is pre-selected based on the last entry in the database. This way you do not
+  need to always select the Project again if switching between databases.
+
+  - **Created startup project and mode selection dialog**:
+    - Created `StartupDialog` class that appears on app startup and database switches
+    - Pre-selects project and mode based on the last time entry in the database
+    - Allows selecting "No Project" or any available project from the dropdown
+    - Supports both existing modes from dropdown and custom mode entry
+    - Gracefully handles empty databases with sensible defaults
+    - User can cancel to start with default settings (No Project, Idle mode)
+
+- ✅ COMPLETED: When editing the hours using the "Edit Hours" , the edits are not reflected in the table, for example, if I change the project, the new selected project is not visible in the table.
+
+  - **Fixed Edit Hours table refresh issue**:
+    - Updated `refresh_table_display()` method to properly look up project information
+    - When project ID is changed, the method now queries the database for current project details
+    - Table now correctly displays updated project names and codes after editing
+    - All changes (mode, project, times, duration, description) are properly reflected in the table
+
+- ✅ COMPLETED: I would like to move the "Exit" to the top of the menu because you click the exit quite easily. Move the Exit to the top and move the disabled database name from the top of the Tray menu to the bottom so that accidental click does not cause any UI action. This is a bit of a usability problem for me at least. Also, I would like to have the databases listed to the Database menu so that I do not need to go to the filesystem to select them. So, just like with other menus, have a separator and the potential databases that you can select could be on top of that separator.
+
+  - **Reorganized tray menu for better usability**:
+    - Moved "Exit" action to the top of the menu for safety
+    - Moved database name display to the bottom as a disabled (non-clickable) item
+    - Added `_get_available_databases()` method to discover database files in AppData folder
+    - Enhanced Database menu to list all available databases at the top
+    - Current database is marked with "● (current)" and is non-clickable
+    - Other databases are clickable and switch to that database when selected
+    - Added `_switch_to_database()` method for seamless database switching
+    - Database switching triggers the startup dialog for immediate project/mode selection
 
 - ✅ COMPLETED: The editing mode for the time entries is still a bit problematic and needs better usability. It is too easy to just accidentally click the entries. I think it would be better if the Editing mode table items would be by default "non editable" and there is a checkbox in the beginning of the row, which you can click. If you select a single row and then click "Edit" button on the top of the screen you get a new window where you can edit the properties of the selected row. There you should be able to 1) Change the project 2) Change the mode 3) Change the ending time with similar logic that will move the next item forward and backward if it is close enough ( 3 min thresold ) just like in the current edit mode. Also in the Edit window there should be a possibility to pick the date which entries you want to modify, now it defaults to "Today" but in the future you want to edit some other previous day. At this point do not consider the situation where multiple rows are selected, if multiple rows are selected then Edit button should be disabled.
 

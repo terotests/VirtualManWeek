@@ -327,8 +327,26 @@ class EditHoursDialog(QDialog):
             # Update mode
             self.table.item(row, 1).setText(entry['mode_label'])
             
-            # Update project
-            project_text = f"{entry['project_code']} - {entry['project_name']}" if entry['project_code'] else "No Project"
+            # Update project - look up current project info if needed
+            if entry.get('project_id'):
+                try:
+                    projects = models.list_all_projects()
+                    project_info = next((p for p in projects if p['id'] == entry['project_id']), None)
+                    if project_info:
+                        entry['project_code'] = project_info['code']
+                        entry['project_name'] = project_info['name']
+                        project_text = f"{project_info['code']} - {project_info['name']}"
+                    else:
+                        entry['project_code'] = ''
+                        entry['project_name'] = ''
+                        project_text = "No Project"
+                except Exception:
+                    project_text = "No Project"
+            else:
+                entry['project_code'] = ''
+                entry['project_name'] = ''
+                project_text = "No Project"
+            
             self.table.item(row, 2).setText(project_text)
             
             # Update times

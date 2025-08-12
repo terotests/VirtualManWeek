@@ -18,9 +18,11 @@ from .mode_switch_dialog import ModeSwitchDialog  # mode switching with manual t
 from .mode_dialog import ModeDialog  # mode management dialog
 from .export_dialog import ExportDateDialog  # date range selection for exports
 from .edit_hours_dialog import EditHoursDialog  # edit today's time entries
+from .startup_dialog import StartupDialog  # startup project and mode selection
 from ..reporting import charts  # HTML-only chart export
 from ..reporting.charts import _fmt_time_short  # Import time formatting function
 import shutil  # for DB export/import
+import os  # for database file operations
 
 # Windows idle detection
 try:
@@ -64,9 +66,8 @@ class TrayApp:
         self._last_icon_minute = -1  # Track when we last updated the clock icon
         self._create_tray()
         self._setup_poll_timer()
-        # Start with default project none and Idle mode
-        self.tracker.start(project_id=None, mode_label="Idle")
-        self._apply_icon(idle=True)
+        # Show startup dialog for project and mode selection
+        self._show_startup_dialog()
 
     def _bootstrap_database_selection(self) -> None:
         """On first run or missing DB, ask user to create/select DB. Apply selection and persist."""
@@ -120,6 +121,22 @@ class TrayApp:
             path = Path(fname)
             self._apply_database(path, notify=False)
             return
+
+    def _show_startup_dialog(self) -> None:
+        """Show startup dialog for project and mode selection"""
+        dialog = StartupDialog()
+        if dialog.exec() == QDialog.Accepted:
+            project_id, mode_label = dialog.get_selection()
+            # Set current project for future operations
+            self.current_project_id = project_id
+            # Start tracking with selected project and mode
+            self.tracker.start(project_id=project_id, mode_label=mode_label)
+            self._apply_icon(idle=(mode_label.lower() == "idle"), force_update=True)
+        else:
+            # User cancelled - start with default (No Project, Idle)
+            self.current_project_id = None
+            self.tracker.start(project_id=None, mode_label="Idle")
+            self._apply_icon(idle=True, force_update=True)
 
     def _get_today_work_seconds(self) -> int:
         """Get total active seconds worked today (excluding idle time)."""
@@ -293,10 +310,10 @@ class TrayApp:
         self.tray.activated.connect(self._on_tray_activated)  # left-click handler
         self.menu = QMenu()
 
-        # Database info at the top
-        self.action_database = QAction("", self.menu)
-        self.action_database.setEnabled(False)
-        self.menu.addAction(self.action_database)
+        # Exit at the top for easy access
+        quit_act = QAction("Exit", self.menu)
+        quit_act.triggered.connect(self.quit)
+        self.menu.addAction(quit_act)
         self.menu.addSeparator()
 
         self.action_current = QAction("Current: Idle", self.menu)
@@ -343,33 +360,17 @@ class TrayApp:
         html_act.triggered.connect(self.show_mode_distribution)
         export_menu.addAction(html_act)
 
-        # Database menu
-        admin_menu = self.menu.addMenu("Database")
-        # New: database management first
-        create_db_act = QAction("Create Database...", admin_menu)
-        create_db_act.triggered.connect(self.create_database)
-        admin_menu.addAction(create_db_act)
-        select_db_act = QAction("Select Database...", admin_menu)
-        select_db_act.triggered.connect(self.select_database)
-        admin_menu.addAction(select_db_act)
-        admin_menu.addSeparator()
-
-        reset_act = QAction("Clear Logged Entries", admin_menu)
-        reset_act.triggered.connect(self.reset_database)
-        admin_menu.addAction(reset_act)
-        export_db_act = QAction("Export Database...", admin_menu)
-        export_db_act.triggered.connect(self.export_database)
-        admin_menu.addAction(export_db_act)
-        import_db_act = QAction("Import Database...", admin_menu)
-        import_db_act.triggered.connect(self.import_database)
-        admin_menu.addAction(import_db_act)
-
-        # Add separator before Exit
+        # Database menu with available databases
+        self.admin_menu = self.menu.addMenu("Database")
+        self.admin_menu.aboutToShow.connect(self._rebuild_database_menu)
+        self._rebuild_database_menu()
+        
         self.menu.addSeparator()
         
-        quit_act = QAction("Exit", self.menu)
-        quit_act.triggered.connect(self.quit)
-        self.menu.addAction(quit_act)
+        # Database info at the bottom (non-clickable)
+        self.action_database = QAction("", self.menu)
+        self.action_database.setEnabled(False)
+        self.menu.addAction(self.action_database)
 
         self.tray.setContextMenu(self.menu)
         
@@ -379,6 +380,28 @@ class TrayApp:
         self.tray.setToolTip(f"VirtualManWeek\nToday's Total: {today_work_str}")
         
         self.tray.show()
+
+    def _get_available_databases(self):
+        """Get list of available database files in the AppData folder"""
+        try:
+            db_folder = appdata_root()
+            if not db_folder.exists():
+                return []
+            
+            databases = []
+            for file_path in db_folder.glob("*.db"):
+                if file_path.is_file():
+                    databases.append({
+                        'name': file_path.stem,
+                        'path': str(file_path),
+                        'is_current': str(file_path) == self.settings.database_path
+                    })
+            
+            # Sort alphabetically, but put current database first
+            databases.sort(key=lambda x: (not x['is_current'], x['name'].lower()))
+            return databases
+        except Exception:
+            return []
 
     def _rebuild_switch_menu(self):
         """Populate the switch mode submenu with modes from the current database."""
@@ -447,6 +470,85 @@ class TrayApp:
         manage = QAction("Manage Projects...", self.projects_menu)
         manage.triggered.connect(self.open_projects)
         self.projects_menu.addAction(manage)
+
+    def _rebuild_database_menu(self):
+        """Rebuild the database menu with available databases"""
+        self.admin_menu.clear()
+        
+        # Get available databases
+        available_dbs = self._get_available_databases()
+        
+        # Add available databases at the top
+        if available_dbs:
+            for db_info in available_dbs:
+                db_name = db_info['name']
+                if db_info['is_current']:
+                    # Mark current database with a bullet point
+                    action_text = f"● {db_name} (current)"
+                    action = QAction(action_text, self.admin_menu)
+                    action.setEnabled(False)  # Current database is not clickable
+                else:
+                    action = QAction(db_name, self.admin_menu)
+                    action.triggered.connect(lambda checked=False, path=db_info['path']: self._switch_to_database(path))
+                
+                self.admin_menu.addAction(action)
+            
+            self.admin_menu.addSeparator()
+        
+        # Database management actions
+        create_db_act = QAction("Create Database...", self.admin_menu)
+        create_db_act.triggered.connect(self.create_database)
+        self.admin_menu.addAction(create_db_act)
+        
+        select_db_act = QAction("Select Database...", self.admin_menu)
+        select_db_act.triggered.connect(self.select_database)
+        self.admin_menu.addAction(select_db_act)
+        
+        self.admin_menu.addSeparator()
+
+        reset_act = QAction("Clear Logged Entries", self.admin_menu)
+        reset_act.triggered.connect(self.reset_database)
+        self.admin_menu.addAction(reset_act)
+        
+        export_db_act = QAction("Export Database...", self.admin_menu)
+        export_db_act.triggered.connect(self.export_database)
+        self.admin_menu.addAction(export_db_act)
+        
+        import_db_act = QAction("Import Database...", self.admin_menu)
+        import_db_act.triggered.connect(self.import_database)
+        self.admin_menu.addAction(import_db_act)
+    
+    def _switch_to_database(self, db_path: str):
+        """Switch to a different database"""
+        try:
+            # Stop current tracking
+            self.stop_tracking()
+            
+            # Update settings
+            self.settings.database_path = db_path
+            self.settings.save()
+            
+            # Recreate tracker with new database
+            self.tracker = Tracker(self.settings)
+            
+            # Update tray display
+            self._apply_icon(force_update=True)
+            self._update_database_name()
+            
+            # Rebuild menus to reflect new database
+            self._rebuild_switch_menu()
+            self._rebuild_projects_menu()
+            self._rebuild_database_menu()
+            
+            # Show startup dialog for new database
+            self._show_startup_dialog()
+            
+            # Show notification
+            db_name = Path(db_path).stem
+            self._notify(f"Switched to database: {db_name}")
+            
+        except Exception as e:
+            QMessageBox.critical(None, "Error", f"Failed to switch database: {e}")
 
     def _project_display(self, pid: Optional[int]) -> str:
         if pid is None:
@@ -577,6 +679,9 @@ class TrayApp:
                 self._update_current_label()  # This will update database info too
                 # Force icon update since tracker is now stopped after database switch
                 self._apply_icon(stopped=True, force_update=True)
+                # Show startup dialog for project and mode selection when switching databases
+                if notify:  # Only show dialog if this is an explicit database switch
+                    self._show_startup_dialog()
             if notify:
                 self._notify(f"Using database: {path}")
         except Exception as e:
