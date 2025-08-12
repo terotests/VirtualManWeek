@@ -1,42 +1,52 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QHeaderView, QMessageBox, QTimeEdit, QLabel, QWidget
+    QPushButton, QHeaderView, QMessageBox, QLabel, QCheckBox, QDateEdit, QFormLayout
 )
-from PySide6.QtCore import Qt, QTime
+from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QFont, QColor
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Any
 from ..db import models
+from .edit_single_entry_dialog import EditSingleEntryDialog
 
 
 class EditHoursDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Edit Hours - Today")
+        self.setWindowTitle("Edit Hours")
         self.setModal(True)
-        self.resize(1200, 700)  # Made wider for better column spacing
+        self.resize(1000, 600)
         
         self.entries = []
         self.changed_entries = set()  # Track which entries have been modified
+        self.current_date = datetime.now().date()
         self.setup_ui()
-        self.load_today_entries()
+        self.load_entries_for_date()
     
     def setup_ui(self):
         layout = QVBoxLayout()
         
         # Title
-        title = QLabel("Edit Today's Time Entries")
+        title = QLabel("Edit Time Entries")
         font = QFont()
         font.setPointSize(12)
         font.setBold(True)
         title.setFont(font)
         layout.addWidget(title)
         
+        # Date selection
+        date_layout = QFormLayout()
+        self.date_edit = QDateEdit()
+        self.date_edit.setDate(QDate.fromString(self.current_date.strftime('%Y-%m-%d'), 'yyyy-MM-dd'))
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.dateChanged.connect(self.on_date_changed)
+        date_layout.addRow("Date:", self.date_edit)
+        layout.addLayout(date_layout)
+        
         # Instructions
         instructions = QLabel(
-            "Adjust end times as needed. When you shorten an entry, the next entry will "
-            "automatically start earlier if they're within 3 minutes of each other.\n"
-            "Modified entries will be highlighted in dark gray."
+            "Select entries using checkboxes, then click 'Edit Selected' to modify them.\n"
+            "Only one entry can be edited at a time. Modified entries will be highlighted in dark blue."
         )
         instructions.setWordWrap(True)
         instructions.setStyleSheet("color: #666; margin-bottom: 10px;")
@@ -44,35 +54,48 @@ class EditHoursDialog(QDialog):
         
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
+        self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels([
-            "Mode", "Project", "Start Time", "End Time", "Duration", "Description"
+            "Select", "Mode", "Project", "Start Time", "End Time", "Duration", "Description"
         ])
         
         # Make table fill width
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Mode
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Project
-        header.setSectionResizeMode(2, QHeaderView.Fixed)  # Start Time - fixed width
-        header.setSectionResizeMode(3, QHeaderView.Fixed)  # End Time - fixed width for editing
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Duration
-        header.setSectionResizeMode(5, QHeaderView.Stretch)  # Description
+        header.setSectionResizeMode(0, QHeaderView.Fixed)  # Select - fixed width
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Mode
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Project
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Start Time
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # End Time
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Duration
+        header.setSectionResizeMode(6, QHeaderView.Stretch)  # Description
         
-        # Set specific widths for time columns to ensure QTimeEdit fits comfortably
-        header.resizeSection(2, 120)  # Start Time - wider
-        header.resizeSection(3, 140)  # End Time - extra wide for editing
+        # Set specific width for checkbox column
+        header.resizeSection(0, 60)
         
         layout.addWidget(self.table)
         
         # Buttons
         button_layout = QHBoxLayout()
         
+        self.select_all_btn = QPushButton("Select All")
+        self.select_all_btn.clicked.connect(self.select_all)
+        
+        self.select_none_btn = QPushButton("Select None")
+        self.select_none_btn.clicked.connect(self.select_none)
+        
+        self.edit_selected_btn = QPushButton("Edit Selected")
+        self.edit_selected_btn.clicked.connect(self.edit_selected)
+        
         self.save_btn = QPushButton("Save Changes")
         self.save_btn.clicked.connect(self.save_changes)
+        self.save_btn.setEnabled(False)  # Disabled until changes are made
         
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.clicked.connect(self.reject)
         
+        button_layout.addWidget(self.select_all_btn)
+        button_layout.addWidget(self.select_none_btn)
+        button_layout.addWidget(self.edit_selected_btn)
         button_layout.addStretch()
         button_layout.addWidget(self.save_btn)
         button_layout.addWidget(self.cancel_btn)
@@ -80,15 +103,16 @@ class EditHoursDialog(QDialog):
         layout.addLayout(button_layout)
         self.setLayout(layout)
     
-    def load_today_entries(self):
-        """Load today's time entries"""
+    def load_entries_for_date(self):
+        """Load time entries for the selected date"""
         try:
-            today = datetime.now().strftime('%Y-%m-%d')
+            selected_date = self.current_date.strftime('%Y-%m-%d')
             
-            # Get entries for today, ordered by start time
+            # Get entries for selected date, ordered by start time
             query = """
                 SELECT te.id, te.mode_label, p.code as project_code, p.name as project_name,
-                       te.start_ts, te.end_ts, te.active_seconds, te.idle_seconds, te.manual_seconds, te.description
+                       te.start_ts, te.end_ts, te.active_seconds, te.idle_seconds, te.manual_seconds, 
+                       te.description, te.project_id
                 FROM time_entries te
                 LEFT JOIN projects p ON te.project_id = p.id
                 WHERE te.date = ?
@@ -97,7 +121,7 @@ class EditHoursDialog(QDialog):
             
             with models.connect() as conn:
                 cur = conn.cursor()
-                cur.execute(query, (today,))
+                cur.execute(query, (selected_date,))
                 rows = cur.fetchall()
             
             self.entries = []
@@ -121,8 +145,7 @@ class EditHoursDialog(QDialog):
                     'manual_seconds': manual_seconds,
                     'elapsed_seconds': elapsed_seconds,
                     'description': row[9] or '',
-                    'original_end_ts': row[5],  # Keep original for reference
-                    'original_start_ts': row[4]  # Keep original start too
+                    'project_id': row[10]
                 }
                 self.entries.append(entry)
             
@@ -131,45 +154,88 @@ class EditHoursDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to load entries: {e}")
     
+    def on_date_changed(self, new_date: QDate):
+        """Handle date selection change"""
+        self.current_date = new_date.toPython()
+        
+        # Check if there are unsaved changes
+        if self.changed_entries:
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "You have unsaved changes. Do you want to save them before changing the date?",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                QMessageBox.Cancel
+            )
+            
+            if reply == QMessageBox.Yes:
+                # Save changes first
+                self.save_changes()
+                if self.changed_entries:  # If save was cancelled
+                    # Revert date selection
+                    self.date_edit.setDate(QDate.fromString(
+                        datetime.now().date().strftime('%Y-%m-%d'), 'yyyy-MM-dd'
+                    ))
+                    return
+            elif reply == QMessageBox.Cancel:
+                # Revert date selection
+                old_date = datetime.now().date() if not hasattr(self, '_last_loaded_date') else self._last_loaded_date
+                self.date_edit.setDate(QDate.fromString(old_date.strftime('%Y-%m-%d'), 'yyyy-MM-dd'))
+                return
+        
+        # Load entries for new date
+        self.changed_entries.clear()
+        self.save_btn.setEnabled(False)
+        self._last_loaded_date = self.current_date
+        self.load_entries_for_date()
+    
     def populate_table(self):
         """Populate the table with current entries"""
         self.table.setRowCount(len(self.entries))
         
         for row, entry in enumerate(self.entries):
+            # Checkbox for selection
+            checkbox = QCheckBox()
+            checkbox.setChecked(False)
+            checkbox.stateChanged.connect(self.update_edit_button_state)
+            self.table.setCellWidget(row, 0, checkbox)
+            
             # Mode
             mode_item = QTableWidgetItem(entry['mode_label'])
             mode_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-            self.table.setItem(row, 0, mode_item)
+            self.table.setItem(row, 1, mode_item)
             
             # Project
             project_text = f"{entry['project_code']} - {entry['project_name']}" if entry['project_code'] else "No Project"
             project_item = QTableWidgetItem(project_text)
             project_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-            self.table.setItem(row, 1, project_item)
+            self.table.setItem(row, 2, project_item)
             
             # Start Time (read-only)
             start_time = datetime.fromtimestamp(entry['start_ts']).strftime('%H:%M:%S')
             start_item = QTableWidgetItem(start_time)
             start_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-            self.table.setItem(row, 2, start_item)
+            self.table.setItem(row, 3, start_item)
             
-            # End Time (editable)
-            end_time_widget = QTimeEdit()
-            end_dt = datetime.fromtimestamp(entry['end_ts'])
-            end_time_widget.setTime(QTime(end_dt.hour, end_dt.minute, end_dt.second))
-            end_time_widget.timeChanged.connect(lambda time, r=row: self.on_end_time_changed(r, time))
-            self.table.setCellWidget(row, 3, end_time_widget)
+            # End Time (read-only display)
+            end_time = datetime.fromtimestamp(entry['end_ts']).strftime('%H:%M:%S')
+            end_item = QTableWidgetItem(end_time)
+            end_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.table.setItem(row, 4, end_item)
             
             # Duration
             duration = self.format_duration(entry['elapsed_seconds'])
             duration_item = QTableWidgetItem(duration)
             duration_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-            self.table.setItem(row, 4, duration_item)
+            self.table.setItem(row, 5, duration_item)
             
             # Description
             desc_item = QTableWidgetItem(entry['description'])
             desc_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-            self.table.setItem(row, 5, desc_item)
+            self.table.setItem(row, 6, desc_item)
+        
+        # Update edit button state
+        self.update_edit_button_state()
     
     def format_duration(self, seconds: int) -> str:
         """Format duration in a readable way"""
@@ -177,132 +243,116 @@ class EditHoursDialog(QDialog):
         minutes, secs = divmod(remainder, 60)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
     
-    def highlight_changed_row(self, row: int):
-        """Highlight a row to show it has been modified"""
-        dark_gray = QColor(169, 169, 169)  # Dark gray background for better contrast
-        for col in range(self.table.columnCount()):
-            item = self.table.item(row, col)
-            if item:
-                item.setBackground(dark_gray)
-        
-        # Also highlight the time edit widget with dark gray
-        time_widget = self.table.cellWidget(row, 3)
-        if time_widget:
-            time_widget.setStyleSheet("background-color: #A9A9A9;")
+    def select_all(self):
+        """Select all entries"""
+        for row in range(self.table.rowCount()):
+            checkbox = self.table.cellWidget(row, 0)
+            if checkbox:
+                checkbox.setChecked(True)
+        self.update_edit_button_state()
     
-    def on_end_time_changed(self, row: int, new_time: QTime):
-        """Handle end time change and adjust subsequent entries if needed"""
+    def select_none(self):
+        """Deselect all entries"""
+        for row in range(self.table.rowCount()):
+            checkbox = self.table.cellWidget(row, 0)
+            if checkbox:
+                checkbox.setChecked(False)
+        self.update_edit_button_state()
+    
+    def update_edit_button_state(self):
+        """Update the Edit Selected button state based on selection"""
+        selected_count = len(self.get_selected_rows())
+        # Enable edit button only when exactly one row is selected
+        self.edit_selected_btn.setEnabled(selected_count == 1)
+        
+        # Update button text to be more descriptive
+        if selected_count == 0:
+            self.edit_selected_btn.setText("Edit Selected (None)")
+        elif selected_count == 1:
+            self.edit_selected_btn.setText("Edit Selected (1)")
+        else:
+            self.edit_selected_btn.setText(f"Edit Selected ({selected_count}) - Disabled")
+    
+    def get_selected_rows(self) -> List[int]:
+        """Get list of selected row indices"""
+        selected = []
+        for row in range(self.table.rowCount()):
+            checkbox = self.table.cellWidget(row, 0)
+            if checkbox and checkbox.isChecked():
+                selected.append(row)
+        return selected
+    
+    def edit_selected(self):
+        """Edit selected entry (only allows single selection)"""
+        selected_rows = self.get_selected_rows()
+        
+        if len(selected_rows) == 0:
+            QMessageBox.information(self, "No Selection", "Please select exactly one entry to edit.")
+            return
+        elif len(selected_rows) > 1:
+            QMessageBox.information(
+                self, "Multiple Selection", 
+                f"You have selected {len(selected_rows)} entries. Please select exactly one entry to edit."
+            )
+            return
+        
+        # Edit the single selected entry
+        row = selected_rows[0]
         if row >= len(self.entries):
             return
-        
+            
         entry = self.entries[row]
         
-        # Convert new time to timestamp
-        start_dt = datetime.fromtimestamp(entry['start_ts'])
-        new_end_dt = start_dt.replace(
-            hour=new_time.hour(),
-            minute=new_time.minute(),
-            second=new_time.second()
-        )
-        
-        # Handle day boundary crossing
-        if new_end_dt < start_dt:
-            new_end_dt += timedelta(days=1)
-        
-        new_end_ts = int(new_end_dt.timestamp())
-        
-        # Validation: End time cannot be before start time
-        if new_end_ts <= entry['start_ts']:
-            QMessageBox.warning(
-                self, 
-                "Invalid Time", 
-                "End time cannot be before or equal to start time. Please choose a later time."
-            )
-            # Reset to original time
-            original_end_dt = datetime.fromtimestamp(entry['end_ts'])
-            time_widget = self.table.cellWidget(row, 3)
-            if time_widget:
-                time_widget.setTime(QTime(original_end_dt.hour, original_end_dt.minute, original_end_dt.second))
-            return
-        
-        old_end_ts = entry['end_ts']
-        
-        # Calculate new duration
-        new_duration = new_end_ts - entry['start_ts']
-        old_duration = entry['elapsed_seconds']
-        
-        # Update entry - proportionally adjust active/idle/manual seconds
-        if old_duration > 0:
-            ratio = new_duration / old_duration
-            entry['active_seconds'] = int(entry['active_seconds'] * ratio)
-            entry['idle_seconds'] = int(entry['idle_seconds'] * ratio)
-            entry['manual_seconds'] = int(entry['manual_seconds'] * ratio)
-        else:
-            # If old duration was 0, just set everything to 0
-            entry['active_seconds'] = 0
-            entry['idle_seconds'] = 0
-            entry['manual_seconds'] = 0
-        
-        # Update timestamps and total elapsed time
-        entry['end_ts'] = new_end_ts
-        entry['elapsed_seconds'] = entry['active_seconds'] + entry['idle_seconds'] + entry['manual_seconds']
-        
-        # Mark this entry as changed
-        self.changed_entries.add(row)
-        
-        # Update duration display
-        duration = self.format_duration(entry['elapsed_seconds'])
-        duration_item = QTableWidgetItem(duration)
-        duration_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-        self.table.setItem(row, 4, duration_item)
-        
-        # Highlight the changed row
-        self.highlight_changed_row(row)
-        
-        # Check if we need to adjust the next entry
-        if row + 1 < len(self.entries):
-            next_entry = self.entries[row + 1]
-            time_gap = next_entry['start_ts'] - old_end_ts
+        # Create edit dialog
+        dialog = EditSingleEntryDialog(entry, self)
+        if dialog.exec() == QDialog.Accepted:
+            # Update the entry with changes
+            modified_entry = dialog.get_modified_entry()
+            self.entries[row] = modified_entry
+            self.changed_entries.add(row)
+            self.highlight_changed_row(row)
             
-            # If the gap was 3 minutes or less, adjust the next entry's start time
-            if 0 <= time_gap <= 180:  # 3 minutes = 180 seconds
-                time_difference = new_end_ts - old_end_ts
-                new_next_start = next_entry['start_ts'] + time_difference
-                
-                # Make sure we don't make the next entry negative duration
-                if new_next_start < next_entry['end_ts']:
-                    # Calculate the new duration for the next entry
-                    new_next_duration = next_entry['end_ts'] - new_next_start
-                    old_next_duration = next_entry['elapsed_seconds']
-                    
-                    # Proportionally adjust the time components for the next entry
-                    if old_next_duration > 0:
-                        ratio = new_next_duration / old_next_duration
-                        next_entry['active_seconds'] = int(next_entry['active_seconds'] * ratio)
-                        next_entry['idle_seconds'] = int(next_entry['idle_seconds'] * ratio)
-                        next_entry['manual_seconds'] = int(next_entry['manual_seconds'] * ratio)
-                    
-                    # Update the next entry's timestamps and total elapsed time
-                    next_entry['start_ts'] = new_next_start
-                    next_entry['elapsed_seconds'] = next_entry['active_seconds'] + next_entry['idle_seconds'] + next_entry['manual_seconds']
-                    
-                    # Mark next entry as changed too
-                    self.changed_entries.add(row + 1)
-                    
-                    # Update the display for the next entry
-                    start_time = datetime.fromtimestamp(next_entry['start_ts']).strftime('%H:%M:%S')
-                    start_item = QTableWidgetItem(start_time)
-                    start_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-                    self.table.setItem(row + 1, 2, start_item)
-                    
-                    # Update duration for next entry using the properly calculated elapsed_seconds
-                    duration = self.format_duration(next_entry['elapsed_seconds'])
-                    duration_item = QTableWidgetItem(duration)
-                    duration_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-                    self.table.setItem(row + 1, 4, duration_item)
-                    
-                    # Highlight the next row too
-                    self.highlight_changed_row(row + 1)
+            # Refresh table display
+            self.refresh_table_display()
+            
+            # Enable save button if there are changes
+            if self.changed_entries:
+                self.save_btn.setEnabled(True)
+    
+    def refresh_table_display(self):
+        """Refresh the table display after changes"""
+        for row in range(len(self.entries)):
+            entry = self.entries[row]
+            
+            # Update mode
+            self.table.item(row, 1).setText(entry['mode_label'])
+            
+            # Update project
+            project_text = f"{entry['project_code']} - {entry['project_name']}" if entry['project_code'] else "No Project"
+            self.table.item(row, 2).setText(project_text)
+            
+            # Update times
+            start_time = datetime.fromtimestamp(entry['start_ts']).strftime('%H:%M:%S')
+            self.table.item(row, 3).setText(start_time)
+            
+            end_time = datetime.fromtimestamp(entry['end_ts']).strftime('%H:%M:%S')
+            self.table.item(row, 4).setText(end_time)
+            
+            # Update duration
+            duration = self.format_duration(entry['elapsed_seconds'])
+            self.table.item(row, 5).setText(duration)
+            
+            # Update description
+            self.table.item(row, 6).setText(entry.get('description', ''))
+    
+    def highlight_changed_row(self, row: int):
+        """Highlight a row to show it has been modified"""
+        dark_blue = QColor(70, 130, 180)  # Steel blue for better contrast
+        for col in range(1, self.table.columnCount()):  # Skip checkbox column
+            item = self.table.item(row, col)
+            if item:
+                item.setBackground(dark_blue)
+                item.setForeground(QColor(255, 255, 255))  # White text for readability
     
     def save_changes(self):
         """Save all changes to the database"""
@@ -319,27 +369,31 @@ class EditHoursDialog(QDialog):
             
             for row in sorted(self.changed_entries):
                 entry = self.entries[row]
-                original_start = datetime.fromtimestamp(entry['original_start_ts']).strftime('%H:%M:%S')
-                original_end = datetime.fromtimestamp(entry['original_end_ts']).strftime('%H:%M:%S')
-                new_start = datetime.fromtimestamp(entry['start_ts']).strftime('%H:%M:%S')
-                new_end = datetime.fromtimestamp(entry['end_ts']).strftime('%H:%M:%S')
                 
-                original_duration = self.format_duration(entry['original_end_ts'] - entry['original_start_ts'])
-                new_duration = self.format_duration(entry['elapsed_seconds'])
+                # For project, we need to look up the current project info
+                if entry.get('project_id'):
+                    projects = models.list_all_projects()
+                    project_info = next((p for p in projects if p['id'] == entry['project_id']), None)
+                    if project_info:
+                        entry['project_code'] = project_info['code']
+                        entry['project_name'] = project_info['name']
+                    else:
+                        entry['project_code'] = ''
+                        entry['project_name'] = ''
+                else:
+                    entry['project_code'] = ''
+                    entry['project_name'] = ''
+                
+                start_time = datetime.fromtimestamp(entry['start_ts']).strftime('%H:%M:%S')
+                end_time = datetime.fromtimestamp(entry['end_ts']).strftime('%H:%M:%S')
+                duration = self.format_duration(entry['elapsed_seconds'])
                 
                 mode_project = f"{entry['mode_label']}"
                 if entry['project_code']:
                     mode_project += f" ({entry['project_code']})"
                 
                 summary.append(f"• {mode_project}")
-                
-                if entry['start_ts'] != entry['original_start_ts']:
-                    summary.append(f"  Start: {original_start} → {new_start}")
-                
-                if entry['end_ts'] != entry['original_end_ts']:
-                    summary.append(f"  End: {original_end} → {new_end}")
-                
-                summary.append(f"  Duration: {original_duration} → {new_duration}")
+                summary.append(f"  Time: {start_time} - {end_time} ({duration})")
                 summary.append("")
             
             summary_text = "\n".join(summary)
@@ -362,13 +416,15 @@ class EditHoursDialog(QDialog):
                 
                 for row in self.changed_entries:
                     entry = self.entries[row]
-                    # Update the database with all time components
+                    # Update the database with all components
                     cur.execute(
                         """UPDATE time_entries 
-                           SET start_ts = ?, end_ts = ?, active_seconds = ?, idle_seconds = ?, manual_seconds = ? 
+                           SET start_ts = ?, end_ts = ?, active_seconds = ?, idle_seconds = ?, 
+                               manual_seconds = ?, mode_label = ?, project_id = ?, description = ? 
                            WHERE id = ?""",
                         (entry['start_ts'], entry['end_ts'], entry['active_seconds'], 
-                         entry['idle_seconds'], entry['manual_seconds'], entry['id'])
+                         entry['idle_seconds'], entry['manual_seconds'], entry['mode_label'],
+                         entry.get('project_id'), entry.get('description', ''), entry['id'])
                     )
             
             QMessageBox.information(self, "Success", f"Successfully updated {len(self.changed_entries)} time entries!")

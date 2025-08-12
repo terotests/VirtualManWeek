@@ -1,8 +1,8 @@
-I would like this "Notes" file to be written into "CHANGELOG" file, create it if it does not exist. Later these entries could be read from the Github issues, but right now this text file is enough
+# VirtualManWeek Changelog
 
-Couple of issues noticed:
+This file tracks changes and improvements made to VirtualManWeek.
 
-- I would like to move the "Exit" to the top of the menu because you click the exit quite easily. Move the Exit to the top and move the disabled database name from the top of the Tray menu to the bottom so that accidental click does not cause any UI action. This is a bit of a usability problem for me at least. Also, I would like to have the databases listed to the Database menu so that I do not need to go to the filesystem to select them. So, just like with other menus, have a separator and the potential databases that you can select could be on top of that separator.
+## Recent Issues and Fixes
 
 - ✅ COMPLETED: The editing mode for the time entries is still a bit problematic and needs better usability. It is too easy to just accidentally click the entries. I think it would be better if the Editing mode table items would be by default "non editable" and there is a checkbox in the beginning of the row, which you can click. If you select a single row and then click "Edit" button on the top of the screen you get a new window where you can edit the properties of the selected row. There you should be able to 1) Change the project 2) Change the mode 3) Change the ending time with similar logic that will move the next item forward and backward if it is close enough ( 3 min thresold ) just like in the current edit mode. Also in the Edit window there should be a possibility to pick the date which entries you want to modify, now it defaults to "Today" but in the future you want to edit some other previous day. At this point do not consider the situation where multiple rows are selected, if multiple rows are selected then Edit button should be disabled.
 
