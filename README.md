@@ -18,17 +18,29 @@ So, what is going here?
 2. **Project** is an optional metadata for each time entry. Project can have a code and a name.
 3. **Mode** means what is the working intention, like "Meeting", or "Coffe break" or "Waiting for the Build" - to track how much time is spent on certain kind of activies.
 
-Before you start tracking you need to at least select the Database and then the "Mode" of working and optionally the project, which you are working right now:
+Before you start tracking you need to at least create a new Database or select and existing Database and then the "Mode" of working and optionally the project, which you are working right now.
 
 ![VirtualManWeek Menu](screenshot_switch_mode.png)
 
 _The menu where you can switch the mode of working._
 
-**So this is not project tracking tool** this is mostly used to track where time is spent. To find issues in the process. But you could track also the time spent on the Projects, but the most important question this tool tries to answer is "Where did the time go?".
+The logging time is automatic background process and it detects the "Idle" mode if you leave computer. You can also edit the log entries manually if you forget to start the logging, select wrong mode or want to update the comments.
+
+![VirtualManWeek Edit](screenshot_edit_hours.png)
+
+From the "Export" menu you can export CSV or HTML report with charts and detailed logs per day including comments.
+
+![VirtualManWeek Chart](screenshot_chart.png)
+
+**So this is not mainly a project tracking tool** this is mostly used to track where time is spent. To find issues in the process. But you could track also the time spent on the Projects, but the most important question this tool tries to answer is "Where did the time go?".
 
 ## About
 
-Few notes about the implementation: I am a professional programmer, but this implementation has been programmed mostly with help of **GPT-5 Preview** and **Claude Sonnet 4**. The original plan is described in the file ORIG.md, then the actual development plan before starting in the `PLAN.md`. Not all the features that were planned were implemented in the final version, for example Azure AD login.
+Few notes about the implementation: I am a professional programmer, but this implementation has been programmed mostly with help of **GPT-5 Preview** and **Claude Sonnet 4**. The original plan is described in the file ORIG.md, then the actual development plan before starting in the `PLAN.md`.
+
+Later on, the `NOTES.md` and `CHANGELOG.md` have been used to track the results.
+
+Not all the features that were planned were implemented in the final version, for example Azure AD login.
 
 > **DISCLAIMER** At this point I am not an experienced Python programmer so you might see some weird things in the codebase, use at own risk and make backups of the DB regularly.
 
